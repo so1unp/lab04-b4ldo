@@ -1,14 +1,14 @@
-#ifndef NAVE_H
-#define NAVE_H
+#ifndef ESTACION_H
+#define ESTACION_H
 
 #include "objeto_espacial.h"
 
 typedef struct {
     ObjetoEspacial base;
     int combustible;
-    int oxigeno;
-    int inventario[CANTIDAD_RECURSOS];
-} Nave;
+    int capacidad;
+    int ocupacion;
+} ESTACION;
 
 
 #endif
