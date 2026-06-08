@@ -7,7 +7,7 @@
 typedef struct {
     ObjetoEspacial base;
     int minerales[CANTIDAD_RECURSOS];
-} ASTEROIDE;
+} Asteroide;
 
 
 #endif

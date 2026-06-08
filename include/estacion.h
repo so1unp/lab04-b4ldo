@@ -8,7 +8,7 @@ typedef struct {
     int combustible;
     int capacidad;
     int ocupacion;
-} ESTACION;
+} Estacion;
 
 
 #endif

@@ -13,8 +13,7 @@ typedef struct {
     int id;
     TipoObjeto tipo;
     int vida;
-    float x, y;
-    float velocidad;
+    int x, y;
 } ObjetoEspacial;
 
 
