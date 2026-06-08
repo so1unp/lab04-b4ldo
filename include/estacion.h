@@ -5,7 +5,7 @@
 
 typedef struct {
     ObjetoEspacial base;
-    int combustible;
+    Barra barra_combustible;
     int capacidad;
     int ocupacion;
 } ESTACION;
