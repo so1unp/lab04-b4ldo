@@ -32,10 +32,7 @@ void nave_inicializar(Nave *n, int id, int x_inicial, int y_inicial)
 
 void nave_consumir_oxigeno(Nave *n)
 {
-    if (n->oxigeno > 0)
-    {
-        n->oxigeno--;
-    }
+    if (n->oxigeno > 0) n->oxigeno--;
 }
 
 bool nave_esta_operativa(Nave *n)
@@ -121,7 +118,7 @@ void *hilo_propulsion(void *arg)
 
             if (se_movio)
             {
-                ctx->mi_nave->combustible -= 5; // Moverse gasta 5 unidades
+                ctx->mi_nave->combustible -= COMBUSTIBLE_CONSUMO;
                 printf("\n[PROPULSIÓN] Movimiento detectado. Combustible restante: %d\n", ctx->mi_nave->combustible);
             }
 

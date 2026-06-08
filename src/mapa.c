@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mapa.h"
+#include "../include/mapa.h"
 
 #include <fcntl.h>
 #include <stdio.h>

@@ -4,6 +4,7 @@
 #define OXIGENO_INICIAL 20
 #define COMBUSTIBLE_INICIAL 100
 #define VELOCIDAD_INICIAL 1.0f
+#define COMBUSTIBLE_CONSUMO 1
 
 #include "objeto_espacial.h"
 #include "recursos.h"
