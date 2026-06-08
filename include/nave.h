@@ -11,8 +11,8 @@
 
 typedef struct {
     ObjetoEspacial base;
-    int combustible;
-    int oxigeno;
+    Barra barra_combustible;
+    Barra barra_oxigeno;
     float velocidad;
     int inventario[CANTIDAD_RECURSOS];
 } Nave;

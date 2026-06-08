@@ -1,6 +1,8 @@
 #ifndef OBJETO_ESPACIAL_H
 #define OBJETO_ESPACIAL_H
 
+#include "../tools/barra.h"
+
 // Tipos de objetos para identificarlos
 typedef enum {
     TIPO_NAVE,
