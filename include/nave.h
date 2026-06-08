@@ -1,6 +1,10 @@
 #ifndef NAVE_H
 #define NAVE_H
 
+#define OXIGENO_INICIAL 20
+#define COMBUSTIBLE_INICIAL 100
+#define VELOCIDAD_INICIAL 1.0f
+
 #include "objeto_espacial.h"
 #include "recursos.h"
 

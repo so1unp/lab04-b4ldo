@@ -22,8 +22,8 @@ void nave_inicializar(Nave *n, int id, int x_inicial, int y_inicial)
     n->base.tipo = TIPO_NAVE;
     n->base.x = x_inicial;
     n->base.y = y_inicial;
-    n->combustible = 100;
-    n->oxigeno = 20; // Ponemos poco para probar que se asfixie rápido
+    n->combustible = COMBUSTIBLE_INICIAL;
+    n->oxigeno = OXIGENO_INICIAL;
     for (int i = 0; i < CANTIDAD_RECURSOS; i++)
     {
         n->inventario[i] = 0;
