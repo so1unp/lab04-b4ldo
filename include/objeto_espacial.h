@@ -1,6 +1,8 @@
 #ifndef OBJETO_ESPACIAL_H
 #define OBJETO_ESPACIAL_H
 
+#include "../tools/barra.h"
+
 // Tipos de objetos para identificarlos
 typedef enum {
     TIPO_NAVE,
@@ -12,7 +14,7 @@ typedef enum {
 typedef struct {
     int id;
     TipoObjeto tipo;
-    int vida;
+    Barra barra_vida;
     float x, y;
     float velocidad;
 } ObjetoEspacial;
