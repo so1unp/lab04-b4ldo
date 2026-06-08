@@ -1,7 +1,7 @@
 #ifndef MOVEMENT_H
 #define MOVEMENT_H
 
-#include "../model/mapa.h"
+#include "mapa.h"
 #include <stdbool.h>
 
 #define MAX_TRAYECTORIA 256

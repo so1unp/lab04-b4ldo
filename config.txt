@@ -1,0 +1,8 @@
+estaciones=3
+asteroides=5
+precio_deuterio=10
+precio_mutexio=20
+precio_semaforita=30
+precio_kernelio=40
+precio_combustible=5
+precio_oxigeno=8

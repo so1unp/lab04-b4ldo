@@ -1,26 +1,27 @@
 CC=gcc
 BIN=./bin
-CFLAGS=-g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code
+CFLAGS=-g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iinclude
+LDFLAGS=-lrt -pthread
 
-PROG=nave estacion servidor
-
-LIST=$(addprefix $(BIN)/, $(PROG))
+# Fuentes y objetos compartidos
+SRCS_SHARED=model/mapa.c tools/movement.c tools/barra.c
 
 .PHONY: all
-all: $(LIST)
+all: $(BIN)/servidor $(BIN)/nave $(BIN)/estacion
 
-$(BIN)/%: %.c
-	$(CC) -o $@ $< $(CFLAGS)
+$(BIN)/servidor: servidor.c $(SRCS_SHARED)
+	@mkdir -p $(BIN)
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
-%: %.c
-	$(CC) -o $(BIN)/$@ $< $(CFLAGS)
+$(BIN)/nave: src/nave.c $(SRCS_SHARED)
+	@mkdir -p $(BIN)
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
-test:
-	@./test.sh ||:
+$(BIN)/estacion: src/estacion.c $(SRCS_SHARED)
+	@mkdir -p $(BIN)
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 .PHONY: clean
-clean:
-	rm -f $(LIST)
 
 zip:
 	git archive --format zip --output ${USER}-lab03.zip HEAD
