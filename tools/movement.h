@@ -17,11 +17,9 @@ typedef struct {
     int indice_actual;
 } Trayectoria;
 
-// Inicialización de semáforos del mapa (lado del Servidor)
-void map_init_semaphores(MapaCompartido* mapa);
-
-// Destrucción de semáforos del mapa (lado del Servidor)
-void map_destroy_semaphores(MapaCompartido* mapa);
+// NOTA: la creación/destrucción de la shm y de sus semáforos vive en mapa.c
+// (mapa_crear_servidor / mapa_destruir_servidor). Este módulo asume que el
+// mapa ya está inicializado y solo se ocupa de mover objetos dentro de él.
 
 // Adquirir una celda inicial al spawnear un objeto
 bool adquirir_posicion_inicial(MapaCompartido* mapa, int x, int y, char token, bool bloquear);

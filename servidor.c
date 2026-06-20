@@ -103,10 +103,15 @@ void generar_entorno(MapaCompartido *mapa, const Configuracion *config) {
     for (int i = 0; i < config->estaciones; i++) {
         int x, y;
         bool exito = false;
-        while (!exito) {
+        int intentos = 0;
+        while (!exito && intentos < 10000) {
             x = rand() % MAP_COLS;
             y = rand() % MAP_ROWS;
             exito = adquirir_posicion_inicial(mapa, x, y, CHAR_ESTACION, false);
+            intentos++;
+        }
+        if (!exito) {
+            fprintf(stderr, "[SERVIDOR] No se pudo ubicar estación %d: mapa lleno.\n", i + 1);
         }
     }
 
@@ -114,10 +119,15 @@ void generar_entorno(MapaCompartido *mapa, const Configuracion *config) {
     for (int i = 0; i < config->asteroides; i++) {
         int x, y;
         bool exito = false;
-        while (!exito) {
+        int intentos = 0;
+        while (!exito && intentos < 10000) {
             x = rand() % MAP_COLS;
             y = rand() % MAP_ROWS;
             exito = adquirir_posicion_inicial(mapa, x, y, CHAR_ASTEROIDE, false);
+            intentos++;
+        }
+        if (!exito) {
+            fprintf(stderr, "[SERVIDOR] No se pudo ubicar asteroide %d: mapa lleno.\n", i + 1);
         }
     }
 }
@@ -143,20 +153,20 @@ int main(int argc, char *argv[])
 
     printf("[SERVIDOR] Iniciando servidor del cuadrante espacial...\n");
 
-    // 2. Cargar configuración
+    // 1. Cargar configuración
     Configuracion config;
     if (cargar_configuracion("config.txt", &config) != 0) {
         fprintf(stderr, "[SERVIDOR] Usando valores de configuración por defecto.\n");
     }
 
-    // 1. Crear el mapa compartido
+    // 2. Crear el mapa compartido
     MapaCompartido *mapa = mapa_crear_servidor();
     if (mapa == NULL) {
         fprintf(stderr, "[SERVIDOR] Error crítico: no se pudo crear el mapa compartido.\n");
         exit(EXIT_FAILURE);
     }
 
-    // 4. Ubicar asteroides y estaciones
+    // 3. Ubicar asteroides y estaciones
     generar_entorno(mapa, &config);
     printf("[SERVIDOR] Mapa inicializado y poblado con éxito.\n");
 

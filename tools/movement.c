@@ -1,4 +1,5 @@
 #include "movement.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -7,33 +8,9 @@ static bool en_limites(int x, int y) {
     return (x >= 0 && x < MAP_COLS && y >= 0 && y < MAP_ROWS);
 }
 
-// Inicialización de semáforos del mapa (lado del Servidor)
-void map_init_semaphores(MapaCompartido* mapa) {
-    if (!mapa) return;
-    for (int y = 0; y < MAP_ROWS; y++) {
-        for (int x = 0; x < MAP_COLS; x++) {
-            // Inicializamos el semáforo binario para cada celda.
-            // El segundo argumento es 1 (pshared = compartido entre procesos).
-            // El tercer argumento es 1 (valor inicial = libre / no ocupado).
-            if (sem_init(&mapa->semaforos[y][x], 1, 1) != 0) {
-                perror("sem_init falló");
-            }
-            mapa->celdas[y][x] = CHAR_VACIO;
-        }
-    }
-}
-
-// Destrucción de semáforos del mapa (lado del Servidor)
-void map_destroy_semaphores(MapaCompartido* mapa) {
-    if (!mapa) return;
-    for (int y = 0; y < MAP_ROWS; y++) {
-        for (int x = 0; x < MAP_COLS; x++) {
-            if (sem_destroy(&mapa->semaforos[y][x]) != 0) {
-                perror("sem_destroy falló");
-            }
-        }
-    }
-}
+// NOTA: la inicialización/destrucción de semáforos de la shm la maneja
+// mapa.c (mapa_crear_servidor / mapa_destruir_servidor). No la dupliquemos
+// acá para evitar doble sem_init/sem_destroy sobre la misma memoria.
 
 // Adquirir una celda inicial al spawnear un objeto
 bool adquirir_posicion_inicial(MapaCompartido* mapa, int x, int y, char token, bool bloquear) {
@@ -158,8 +135,7 @@ void generar_trayectoria_lineal_ecuacion(float m, float c, int x_inicio, int x_f
     if (m >= -1.0f && m <= 1.0f) {
         int dir = (x_inicio <= x_fin) ? 1 : -1;
         for (int x = x_inicio; (dir > 0 ? x <= x_fin : x >= x_fin) && idx < MAX_TRAYECTORIA; x += dir) {
-            float y_float = m * (float)x + c;
-            int y = (int)(y_float + 0.5f - (y_float < 0.0f ? 1.0f : 0.0f)); // redondeo rápido
+            int y = (int)roundf(m * (float)x + c);
             if (en_limites(x, y)) {
                 tray->puntos[idx].x = x;
                 tray->puntos[idx].y = y;
@@ -169,15 +145,12 @@ void generar_trayectoria_lineal_ecuacion(float m, float c, int x_inicio, int x_f
     } 
     // Si la pendiente es empinada (|m| > 1), iteramos en Y usando la inversa: x = (y - c) / m
     else {
-        float y_inicio_f = m * (float)x_inicio + c;
-        float y_fin_f = m * (float)x_fin + c;
-        int y_inicio = (int)(y_inicio_f + 0.5f - (y_inicio_f < 0.0f ? 1.0f : 0.0f));
-        int y_fin = (int)(y_fin_f + 0.5f - (y_fin_f < 0.0f ? 1.0f : 0.0f));
+        int y_inicio = (int)roundf(m * (float)x_inicio + c);
+        int y_fin    = (int)roundf(m * (float)x_fin    + c);
         
         int dir = (y_inicio <= y_fin) ? 1 : -1;
         for (int y = y_inicio; (dir > 0 ? y <= y_fin : y >= y_fin) && idx < MAX_TRAYECTORIA; y += dir) {
-            float x_float = ((float)y - c) / m;
-            int x = (int)(x_float + 0.5f - (x_float < 0.0f ? 1.0f : 0.0f));
+            int x = (int)roundf(((float)y - c) / m);
             if (en_limites(x, y)) {
                 tray->puntos[idx].x = x;
                 tray->puntos[idx].y = y;
