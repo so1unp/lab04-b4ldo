@@ -15,7 +15,7 @@ $(BIN)/servidor: servidor.c $(SRCS_SHARED)
 
 $(BIN)/nave: src/nave.c $(SRCS_SHARED)
 	@mkdir -p $(BIN)
-	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS) -lncurses
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 $(BIN)/estacion: src/estacion.c $(SRCS_SHARED)
 	@mkdir -p $(BIN)
