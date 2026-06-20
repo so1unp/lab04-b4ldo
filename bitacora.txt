@@ -1,0 +1,11 @@
+[2026-06-20 19:21:06] Estacion (16,11) | Nave PID 11326 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:21:07] Estacion (16,11) | Nave PID 11326 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:21:08] Estacion (16,11) | Nave PID 11326 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:36:07] Estacion (35,5) | Nave PID 13646 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 19:36:14] Estacion (35,5) | Nave PID 13646 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 1 cantidad: 5 | Resultado: EXITO
+[2026-06-20 19:40:00] Estacion (18,2) | Nave PID 13982 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 19:41:12] Estacion (26,7) | Nave PID 14198 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:41:31] Estacion (26,7) | Nave PID 14198 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:41:32] Estacion (26,7) | Nave PID 14198 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 19:44:37] Estacion (12,14) | Nave PID 15100 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 1 cantidad: 10 | Resultado: EXITO
+[2026-06-20 19:44:37] Estacion (12,14) | Nave PID 15100 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 5 | Resultado: EXITO
