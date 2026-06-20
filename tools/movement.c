@@ -7,33 +7,9 @@ static bool en_limites(int x, int y) {
     return (x >= 0 && x < MAP_COLS && y >= 0 && y < MAP_ROWS);
 }
 
-// Inicialización de semáforos del mapa (lado del Servidor)
-void map_init_semaphores(MapaCompartido* mapa) {
-    if (!mapa) return;
-    for (int y = 0; y < MAP_ROWS; y++) {
-        for (int x = 0; x < MAP_COLS; x++) {
-            // Inicializamos el semáforo binario para cada celda.
-            // El segundo argumento es 1 (pshared = compartido entre procesos).
-            // El tercer argumento es 1 (valor inicial = libre / no ocupado).
-            if (sem_init(&mapa->semaforos[y][x], 1, 1) != 0) {
-                perror("sem_init falló");
-            }
-            mapa->celdas[y][x] = CHAR_VACIO;
-        }
-    }
-}
-
-// Destrucción de semáforos del mapa (lado del Servidor)
-void map_destroy_semaphores(MapaCompartido* mapa) {
-    if (!mapa) return;
-    for (int y = 0; y < MAP_ROWS; y++) {
-        for (int x = 0; x < MAP_COLS; x++) {
-            if (sem_destroy(&mapa->semaforos[y][x]) != 0) {
-                perror("sem_destroy falló");
-            }
-        }
-    }
-}
+// NOTA: la inicialización/destrucción de semáforos de la shm la maneja
+// mapa.c (mapa_crear_servidor / mapa_destruir_servidor). No la dupliquemos
+// acá para evitar doble sem_init/sem_destroy sobre la misma memoria.
 
 // Adquirir una celda inicial al spawnear un objeto
 bool adquirir_posicion_inicial(MapaCompartido* mapa, int x, int y, char token, bool bloquear) {

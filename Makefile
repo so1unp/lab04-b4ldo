@@ -1,6 +1,6 @@
 CC=gcc
 BIN=./bin
-CFLAGS=-g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iinclude
+CFLAGS=-g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iinclude -Itools
 LDFLAGS=-lrt -pthread
 
 # Fuentes y objetos compartidos
@@ -15,7 +15,7 @@ $(BIN)/servidor: servidor.c $(SRCS_SHARED)
 
 $(BIN)/nave: src/nave.c $(SRCS_SHARED)
 	@mkdir -p $(BIN)
-	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS) -lncurses
 
 $(BIN)/estacion: src/estacion.c $(SRCS_SHARED)
 	@mkdir -p $(BIN)
