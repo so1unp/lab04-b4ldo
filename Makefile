@@ -1,6 +1,6 @@
 CC=gcc
 BIN=./bin
-CFLAGS=-g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iinclude -Itools
+CFLAGS=-std=gnu99 -g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iinclude -Itools
 LDFLAGS=-lrt -pthread -lm
 
 # Fuentes y objetos compartidos
