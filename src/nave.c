@@ -3,12 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <signal.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <time.h>
-#include <termios.h>
+#include <ncurses.h>
 
 #include "mapa.h"
 #include "movement.h"
@@ -29,41 +28,11 @@
 #define COSTO_FUEL_MOV    2
 #define COSTO_FUEL_EXT    3
 
-/* ─── Layout de pantalla ───────────────────────────────────────── */
-/* Total de filas mostradas: MAP_ROWS + 2 (bordes superior/inferior) */
-#define PANEL_W   22          /* ancho del panel izquierdo           */
-#define BAR_IN    10          /* ancho interior de la barra [======] */
-/* ancho total de pantalla: PANEL_W + 1(|) + MAP_COLS + 1(|) = 104  */
-
-/* ─── ANSI helpers ─────────────────────────────────────────────── */
-#define ESC           "\033"
-#define ANSI_HOME     ESC "[H"
-#define ANSI_HIDE_CUR ESC "[?25l"
-#define ANSI_SHOW_CUR ESC "[?25h"
-#define ANSI_CLEAR    ESC "[2J"
-#define ANSI_BOLD     ESC "[1m"
-#define ANSI_REV      ESC "[7m"
-#define ANSI_RST      ESC "[0m"
-#define ANSI_CLR_LINE ESC "[K"
-
-/* ─── Frame buffer ─────────────────────────────────────────────── */
-#define FBUF 131072
-static char  g_fb[FBUF];
-static int   g_fb_pos;
-
-static void fb_reset(void)  { g_fb_pos = 0; }
-static void fb_flush(void)  { write(STDOUT_FILENO, g_fb, (size_t)g_fb_pos); }
-
-static void fb_raw(const char *s, int n)
-{
-    if (g_fb_pos + n >= FBUF) return;
-    memcpy(g_fb + g_fb_pos, s, (size_t)n);
-    g_fb_pos += n;
-}
-static void fb_str(const char *s) { fb_raw(s, (int)strlen(s)); }
-static void fb_ch(char c)         { if (g_fb_pos < FBUF - 1) g_fb[g_fb_pos++] = c; }
-
-
+/* ─── Layout ncurses ───────────────────────────────────────────── */
+/* Ventana HUD: columna 0, ancho PANEL_W                           */
+/* Ventana Mapa: columna PANEL_W, MAP_COLS+2 de ancho              */
+#define PANEL_W   24
+#define BAR_IN    10
 
 /* ─── Estado global ────────────────────────────────────────────── */
 typedef struct {
@@ -76,29 +45,13 @@ typedef struct {
 } EstadoNave;
 
 static EstadoNave      g;
-static pthread_mutex_t g_mx_out = PTHREAD_MUTEX_INITIALIZER; /* serializa writes */
 
-/* ─── Terminal raw mode ────────────────────────────────────────── */
-static struct termios g_term_orig;
+/* Mutex que serializa todos los accesos a ncurses (no es thread-safe) */
+static pthread_mutex_t g_mx_ncurses = PTHREAD_MUTEX_INITIALIZER;
 
-static void term_raw(void)
-{
-    struct termios t;
-    tcgetattr(STDIN_FILENO, &g_term_orig);
-    t = g_term_orig;
-    t.c_lflag &= (unsigned)~(ICANON | ECHO | ISIG);
-    t.c_iflag &= (unsigned)~(IXON | ICRNL);
-    t.c_cc[VMIN]  = 0;
-    t.c_cc[VTIME] = 1; /* 100 ms de timeout por read() */
-    tcsetattr(STDIN_FILENO, TCSANOW, &t);
-}
-
-static void term_restore(void)
-{
-    static const char seq[] = ANSI_SHOW_CUR ANSI_CLEAR ANSI_HOME;
-    tcsetattr(STDIN_FILENO, TCSANOW, &g_term_orig);
-    write(STDOUT_FILENO, seq, sizeof(seq) - 1);
-}
+/* Ventanas ncurses */
+static WINDOW *win_hud  = NULL;  /* panel izquierdo                */
+static WINDOW *win_mapa = NULL;  /* mapa del juego + borde         */
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 static void dormir_ms(long ms)
@@ -115,125 +68,173 @@ static void game_over(const char *motivo)
     (void)motivo;
 }
 
-/* ─── Render ───────────────────────────────────────────────────── */
-
-/* Escribe una línea del panel, exactamente PANEL_W chars, sin newline */
-static void fb_panel_line(const char *fmt, ...)
+/* ─── Inicialización y cierre de ncurses ───────────────────────── */
+static void ncurses_init(void)
 {
-    char tmp[PANEL_W + 2];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(tmp, sizeof(tmp), fmt, ap);
-    va_end(ap);
-    int len = (int)strlen(tmp);
-    fb_raw(tmp, len < PANEL_W ? len : PANEL_W);
-    for (int i = len; i < PANEL_W; i++) fb_ch(' ');
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    curs_set(0);           /* ocultar cursor                        */
+
+    /* Colores */
+    if (has_colors()) {
+        start_color();
+        use_default_colors();
+        /* Par 1: texto normal HUD                                  */
+        init_pair(1, COLOR_CYAN,   -1);
+        /* Par 2: barra combustible llena                           */
+        init_pair(2, COLOR_GREEN,  -1);
+        /* Par 3: barra combustible baja                            */
+        init_pair(3, COLOR_RED,    -1);
+        /* Par 4: nave en el mapa (resaltada)                       */
+        init_pair(4, COLOR_YELLOW, COLOR_BLUE);
+        /* Par 5: asteroide                                         */
+        init_pair(5, COLOR_WHITE,  -1);
+        /* Par 6: estación espacial                                 */
+        init_pair(6, COLOR_MAGENTA, -1);
+        /* Par 7: título HUD                                        */
+        init_pair(7, COLOR_YELLOW, -1);
+        /* Par 8: GAME OVER                                         */
+        init_pair(8, COLOR_RED,    COLOR_BLACK);
+        /* Par 9: barra O2 normal                                   */
+        init_pair(9, COLOR_CYAN,   -1);
+    }
+
+    /*
+     * Ventana HUD (panel izquierdo)
+     * Filas: MAP_ROWS + 2 (borde superior e inferior del mapa)
+     * Cols: PANEL_W
+     */
+    win_hud  = newwin(MAP_ROWS + 2, PANEL_W, 0, 0);
+
+    /*
+     * Ventana Mapa: MAP_ROWS filas de contenido + 2 de borde ncurses
+     * Cols: MAP_COLS + 2 (borde left/right del box)
+     * Posición: columna PANEL_W
+     */
+    win_mapa = newwin(MAP_ROWS + 2, MAP_COLS + 2, 0, PANEL_W);
+
+    nodelay(stdscr, TRUE); /* getch() no bloquea: devuelve ERR si no hay tecla */
+    keypad(stdscr, TRUE);  /* habilitar teclas de flecha en stdscr también      */
+
+    refresh();
 }
 
-static void fb_bar(int val, int maxv)
+static void ncurses_end(void)
+{
+    if (win_hud)  { delwin(win_hud);  win_hud  = NULL; }
+    if (win_mapa) { delwin(win_mapa); win_mapa = NULL; }
+    endwin();
+}
+
+/* ─── Dibujo de barra en win_hud ───────────────────────────────── */
+static void hud_barra(int row, int val, int maxv, int color_full, int color_low)
 {
     int filled = (maxv > 0) ? (val * BAR_IN / maxv) : 0;
     if (filled > BAR_IN) filled = BAR_IN;
-    char tmp[PANEL_W + 2];
-    tmp[0] = ' '; tmp[1] = '[';
-    for (int i = 0; i < BAR_IN; i++) tmp[2 + i] = (i < filled) ? '=' : ' ';
-    tmp[2 + BAR_IN] = ']';
-    snprintf(tmp + 3 + BAR_IN, sizeof(tmp) - 3 - BAR_IN, " %3d", val);
-    int len = (int)strlen(tmp);
-    fb_raw(tmp, len < PANEL_W ? len : PANEL_W);
-    for (int i = len; i < PANEL_W; i++) fb_ch(' ');
+
+    wmove(win_hud, row, 1);
+    waddch(win_hud, '[');
+
+    int low = (val * 100 / (maxv > 0 ? maxv : 1)) < 30;
+    for (int i = 0; i < BAR_IN; i++) {
+        if (i < filled) {
+            wattron(win_hud, COLOR_PAIR(low ? color_low : color_full));
+            waddch(win_hud, '=');
+            wattroff(win_hud, COLOR_PAIR(low ? color_low : color_full));
+        } else {
+            waddch(win_hud, ' ');
+        }
+    }
+    waddch(win_hud, ']');
+    wprintw(win_hud, " %3d", val);
 }
 
-/*
- * Genera el frame completo en el buffer y hace un único write().
- * Layout:
- *   col 0..PANEL_W-1  : panel izquierdo
- *   col PANEL_W        : borde vertical |
- *   col PANEL_W+1 ..   : celdas del mapa
- *   col PANEL_W+1+MAP_COLS : borde vertical |
- *
- * Filas:
- *   fila 0           : panel[0]  + borde superior del mapa
- *   fila 1..MAP_ROWS : panel[r]  + | + celdas + |
- *   fila MAP_ROWS+1  : panel[last] + borde inferior del mapa
- */
+/* ─── Render completo ───────────────────────────────────────────── */
 static void render_frame(void)
 {
     int fuel = barra_get_valor(&g.nave.barra_combustible);
     int o2   = barra_get_valor(&g.nave.barra_oxigeno);
 
-    /* ── Construir array de líneas del panel ── */
-    /* Máximo MAP_ROWS+2 líneas (una por fila de pantalla)            */
-    /* Las almacenamos como funciones inline al emitir el frame       */
+    /* ── Panel HUD ── */
+    werase(win_hud);
 
-    /* ── Emitir frame ── */
-    fb_reset();
-    fb_str(ANSI_HOME);   /* sin CLEAR: sobreescribimos in-place → sin flicker */
+    /* Título */
+    wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
+    mvwprintw(win_hud, 0, 1, " COSMIKERNEL");
+    wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
 
-    /* Fila 0: título del panel + borde superior del mapa */
-    fb_str(ANSI_BOLD);
-    fb_panel_line(" COSMIKERNEL");
-    fb_str(ANSI_RST);
-    fb_ch('+');
-    for (int c = 0; c < MAP_COLS; c++) fb_ch('-');
-    fb_str("+\r\n");
+    wattron(win_hud, COLOR_PAIR(1));
 
-    /* Filas 1..MAP_ROWS: panel + mapa */
-    /* Definimos las líneas del panel según el índice de fila (1-based) */
-    for (int r = 1; r <= MAP_ROWS; r++) {
-        /* Panel izquierdo */
-        switch (r) {
-            case  1: fb_panel_line(" ----------------------"); break;
-            case  2: fb_panel_line(""); break;
-            case  3: fb_panel_line(" Combustible"); break;
-            case  4: fb_bar(fuel, FUEL_MAX); break;
-            case  5: fb_panel_line(""); break;
-            case  6: fb_panel_line(" Oxigeno"); break;
-            case  7: fb_bar(o2, O2_MAX); break;
-            case  8: fb_panel_line(""); break;
-            case  9: fb_panel_line(" Posicion"); break;
-            case 10: fb_panel_line(" X:%-3d  Y:%-3d", g.x, g.y); break;
-            case 11: fb_panel_line(""); break;
-            case 12: fb_panel_line(" Inventario"); break;
-            case 13: fb_panel_line(" Deu: %d", g.nave.inventario[MINERAL_DEUTERIO]); break;
-            case 14: fb_panel_line(" Mut: %d", g.nave.inventario[MINERAL_MUTEXIO]); break;
-            case 15: fb_panel_line(" Sem: %d", g.nave.inventario[MINERAL_SEMAFORITA]); break;
-            case 16: fb_panel_line(" Ker: %d", g.nave.inventario[MINERAL_KERNELIO]); break;
-            case 17: fb_panel_line(""); break;
-            case 18: fb_panel_line(" Controles:"); break;
-            case 19: fb_panel_line(" WASD  mover"); break;
-            case 20: fb_panel_line(" E     extraer"); break;
-            case 21: fb_panel_line(" Q     salir"); break;
-            case 22: fb_panel_line(""); break;
-            case 23:
-                if (!g.vivo) { fb_str(ANSI_BOLD ANSI_REV); fb_panel_line(" *** GAME OVER ***"); fb_str(ANSI_RST); }
-                else          { fb_panel_line(""); }
-                break;
-            default: fb_panel_line(""); break;
-        }
+    /* Combustible */
+    mvwprintw(win_hud, 2, 1, "Combustible");
+    hud_barra(3, fuel, FUEL_MAX, 2, 3);
 
-        /* Borde + celdas del mapa */
-        fb_ch('|');
-        for (int c = 0; c < MAP_COLS; c++) {
-            char cell = g.mapa->celdas[r - 1][c];
-            if (cell == CHAR_NAVE) {
-                fb_str(ANSI_BOLD ANSI_REV);
-                fb_ch('N');
-                fb_str(ANSI_RST);
-            } else {
-                fb_ch(cell == CHAR_VACIO ? ' ' : cell);
-            }
-        }
-        fb_str("|\r\n");
+    /* Oxígeno */
+    mvwprintw(win_hud, 5, 1, "Oxigeno");
+    hud_barra(6, o2, O2_MAX, 9, 3);
+
+    /* Posición */
+    mvwprintw(win_hud, 8,  1, "Posicion");
+    mvwprintw(win_hud, 9,  1, " X:%-3d  Y:%-3d", g.x, g.y);
+
+    /* Inventario */
+    mvwprintw(win_hud, 11, 1, "Inventario");
+    mvwprintw(win_hud, 12, 1, " Deu: %d", g.nave.inventario[MINERAL_DEUTERIO]);
+    mvwprintw(win_hud, 13, 1, " Mut: %d", g.nave.inventario[MINERAL_MUTEXIO]);
+    mvwprintw(win_hud, 14, 1, " Sem: %d", g.nave.inventario[MINERAL_SEMAFORITA]);
+    mvwprintw(win_hud, 15, 1, " Ker: %d", g.nave.inventario[MINERAL_KERNELIO]);
+
+    /* Controles */
+    mvwprintw(win_hud, 17, 1, "Controles:");
+    mvwprintw(win_hud, 18, 1, " WASD  mover");
+    mvwprintw(win_hud, 19, 1, " E     extraer");
+    mvwprintw(win_hud, 20, 1, " Q     salir");
+
+    wattroff(win_hud, COLOR_PAIR(1));
+
+    /* GAME OVER */
+    if (!g.vivo) {
+        wattron(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
+        mvwprintw(win_hud, 22, 1, "*** GAME OVER ***");
+        wattroff(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
     }
 
-    /* Última fila: borde inferior del mapa */
-    fb_panel_line("");
-    fb_ch('+');
-    for (int c = 0; c < MAP_COLS; c++) fb_ch('-');
-    fb_str("+\r\n");
+    wnoutrefresh(win_hud);
 
-    fb_flush();
+    /* ── Ventana Mapa ── */
+    werase(win_mapa);
+    box(win_mapa, 0, 0);  /* borde con caracteres de línea ncurses  */
+
+    for (int r = 0; r < MAP_ROWS; r++) {
+        for (int c = 0; c < MAP_COLS; c++) {
+            char cell = g.mapa->celdas[r][c];
+            /* +1 por el borde box() */
+            wmove(win_mapa, r + 1, c + 1);
+
+            if (cell == CHAR_NAVE) {
+                wattron(win_mapa, COLOR_PAIR(4) | A_BOLD);
+                waddch(win_mapa, 'N');
+                wattroff(win_mapa, COLOR_PAIR(4) | A_BOLD);
+            } else if (cell == CHAR_ASTEROIDE) {
+                wattron(win_mapa, COLOR_PAIR(5));
+                waddch(win_mapa, 'A');
+                wattroff(win_mapa, COLOR_PAIR(5));
+            } else if (cell == CHAR_ESTACION) {
+                wattron(win_mapa, COLOR_PAIR(6) | A_BOLD);
+                waddch(win_mapa, 'E');
+                wattroff(win_mapa, COLOR_PAIR(6) | A_BOLD);
+            } else {
+                waddch(win_mapa, cell == CHAR_VACIO ? ' ' : (chtype)(unsigned char)cell);
+            }
+        }
+    }
+
+    wnoutrefresh(win_mapa);
+
+    /* Envía todo al terminal en un único paso (reduce flicker) */
+    doupdate();
 }
 
 /* ─── Hilos ────────────────────────────────────────────────────── */
@@ -253,19 +254,22 @@ static void *hilo_soporte_vital(void *arg)
 static void *hilo_propulsion(void *arg)
 {
     (void)arg;
-    char ch;
 
     while (g.vivo) {
-        /* read() con VTIME=1 → timeout de 100 ms, no bloquea para siempre */
-        ssize_t n = read(STDIN_FILENO, &ch, 1);
-        if (n <= 0) continue;
+        /*
+         * Leer teclado desde stdscr con nodelay=TRUE.
+         * NO tomamos g_mx_ncurses aquí: getch() sobre stdscr es seguro
+         * en un único hilo lector, y evitamos bloquear hilo_radar.
+         */
+        int ch = getch();
+        if (ch == ERR) { dormir_ms(10); continue; }
 
         int dx = 0, dy = 0;
         switch (ch) {
-            case 'w': case 'W': dy = -1; break;
-            case 's': case 'S': dy =  1; break;
-            case 'a': case 'A': dx = -1; break;
-            case 'd': case 'D': dx =  1; break;
+            case 'w': case 'W': case KEY_UP:    dy = -1; break;
+            case 's': case 'S': case KEY_DOWN:  dy =  1; break;
+            case 'a': case 'A': case KEY_LEFT:  dx = -1; break;
+            case 'd': case 'D': case KEY_RIGHT: dx =  1; break;
             case 'e': case 'E': g.extrayendo = 1; continue;
             case 'q': case 'Q':
                 pthread_mutex_lock(&g.mx_estado);
@@ -311,15 +315,15 @@ static void *hilo_radar(void *arg)
 {
     (void)arg;
     while (g.vivo) {
-        pthread_mutex_lock(&g_mx_out);
+        pthread_mutex_lock(&g_mx_ncurses);
         render_frame();
-        pthread_mutex_unlock(&g_mx_out);
+        pthread_mutex_unlock(&g_mx_ncurses);
         dormir_ms(120);
     }
-    /* Último frame con GAME OVER */
-    pthread_mutex_lock(&g_mx_out);
+    /* Último frame mostrando GAME OVER */
+    pthread_mutex_lock(&g_mx_ncurses);
     render_frame();
-    pthread_mutex_unlock(&g_mx_out);
+    pthread_mutex_unlock(&g_mx_ncurses);
     return NULL;
 }
 
@@ -361,8 +365,8 @@ int main(int argc, char *argv[])
     g.vivo = 1;
     g.extrayendo = 0;
     memset(g.nave.inventario, 0, sizeof(g.nave.inventario));
-    g.nave.base.id       = getpid();
-    g.nave.base.tipo     = TIPO_NAVE;
+    g.nave.base.id        = getpid();
+    g.nave.base.tipo      = TIPO_NAVE;
     g.nave.base.velocidad = 1.0f;
 
     /* 3. Spawn en el mapa */
@@ -374,10 +378,8 @@ int main(int argc, char *argv[])
     g.nave.base.x = (float)g.x;
     g.nave.base.y = (float)g.y;
 
-    /* 4. Preparar terminal: raw mode + ocultar cursor */
-    term_raw();
-    { static const char seq[] = ANSI_HIDE_CUR ANSI_CLEAR ANSI_HOME;
-      write(STDOUT_FILENO, seq, sizeof(seq) - 1); }
+    /* 4. Inicializar ncurses */
+    ncurses_init();
 
     /* 5. Lanzar hilos */
     pthread_t t_vital, t_prop, t_ext, t_radar;
@@ -386,8 +388,9 @@ int main(int argc, char *argv[])
     pthread_create(&t_ext,   NULL, hilo_extraccion,    NULL);
     pthread_create(&t_radar, NULL, hilo_radar,         NULL);
 
+    /* Loop principal: espera a que el juego termine */
     while (g.vivo) dormir_ms(100);
-    sleep(2);
+    sleep(2);   /* pausa para que el jugador lea el GAME OVER       */
 
     /* 6. Limpieza */
     pthread_cancel(t_vital);
@@ -396,13 +399,13 @@ int main(int argc, char *argv[])
     pthread_join(t_ext,   NULL);
     pthread_join(t_radar, NULL);
 
-    term_restore();
+    ncurses_end();
 
     liberar_posicion(g.mapa, g.x, g.y);
     barra_destroy(&g.nave.barra_combustible);
     barra_destroy(&g.nave.barra_oxigeno);
     pthread_mutex_destroy(&g.mx_estado);
-    pthread_mutex_destroy(&g_mx_out);
+    pthread_mutex_destroy(&g_mx_ncurses);
     mapa_desconectar(g.mapa);
 
     printf("[NAVE] Desconectada.\n");

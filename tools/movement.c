@@ -1,4 +1,5 @@
 #include "movement.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -134,8 +135,7 @@ void generar_trayectoria_lineal_ecuacion(float m, float c, int x_inicio, int x_f
     if (m >= -1.0f && m <= 1.0f) {
         int dir = (x_inicio <= x_fin) ? 1 : -1;
         for (int x = x_inicio; (dir > 0 ? x <= x_fin : x >= x_fin) && idx < MAX_TRAYECTORIA; x += dir) {
-            float y_float = m * (float)x + c;
-            int y = (int)(y_float + 0.5f - (y_float < 0.0f ? 1.0f : 0.0f)); // redondeo rápido
+            int y = (int)roundf(m * (float)x + c);
             if (en_limites(x, y)) {
                 tray->puntos[idx].x = x;
                 tray->puntos[idx].y = y;
@@ -145,15 +145,12 @@ void generar_trayectoria_lineal_ecuacion(float m, float c, int x_inicio, int x_f
     } 
     // Si la pendiente es empinada (|m| > 1), iteramos en Y usando la inversa: x = (y - c) / m
     else {
-        float y_inicio_f = m * (float)x_inicio + c;
-        float y_fin_f = m * (float)x_fin + c;
-        int y_inicio = (int)(y_inicio_f + 0.5f - (y_inicio_f < 0.0f ? 1.0f : 0.0f));
-        int y_fin = (int)(y_fin_f + 0.5f - (y_fin_f < 0.0f ? 1.0f : 0.0f));
+        int y_inicio = (int)roundf(m * (float)x_inicio + c);
+        int y_fin    = (int)roundf(m * (float)x_fin    + c);
         
         int dir = (y_inicio <= y_fin) ? 1 : -1;
         for (int y = y_inicio; (dir > 0 ? y <= y_fin : y >= y_fin) && idx < MAX_TRAYECTORIA; y += dir) {
-            float x_float = ((float)y - c) / m;
-            int x = (int)(x_float + 0.5f - (x_float < 0.0f ? 1.0f : 0.0f));
+            int x = (int)roundf(((float)y - c) / m);
             if (en_limites(x, y)) {
                 tray->puntos[idx].x = x;
                 tray->puntos[idx].y = y;

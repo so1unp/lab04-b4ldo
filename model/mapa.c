@@ -2,6 +2,7 @@
 
 #include "mapa.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +75,18 @@ static MapaCompartido *abrir_segmento(int flags)
     int fd;
     MapaCompartido *mapa;
 
-    fd = shm_open(MAPA_SHM_NAME, flags, 0660);
+    if ((flags & O_CREAT) != 0) {
+        /* Intentar creación exclusiva; si el segmento quedó huérfano de una
+         * ejecución anterior que crasheó, lo eliminamos y reintentamos.     */
+        fd = shm_open(MAPA_SHM_NAME, flags | O_EXCL, 0660);
+        if (fd == -1 && errno == EEXIST) {
+            shm_unlink(MAPA_SHM_NAME);
+            fd = shm_open(MAPA_SHM_NAME, flags | O_EXCL, 0660);
+        }
+    } else {
+        fd = shm_open(MAPA_SHM_NAME, flags, 0660);
+    }
+
     if (fd == -1) {
         perror("shm_open");
         return NULL;

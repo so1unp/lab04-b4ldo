@@ -15,7 +15,7 @@ typedef struct {
     // Variables para el decremento automático a lo largo del tiempo
     int decremento_por_intervalo;
     int intervalo_ms; // Cada cuántos milisegundos se aplica el decremento
-    bool hilo_activo; // Bandera para controlar la ejecución del hilo
+    volatile bool hilo_activo; // Bandera para controlar la ejecución del hilo
     pthread_t hilo_decremento;
     
     // Sincronización para acceso concurrente
