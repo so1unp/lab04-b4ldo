@@ -152,6 +152,14 @@ void mapa_limpiar(MapaCompartido *mapa)
     }
 
     memset(mapa->celdas, CHAR_VACIO, sizeof(mapa->celdas));
+    for (int i = 0; i < MAX_ASTEROIDES; i++) {
+        mapa->asteroides[i].activo = false;
+    }
+    for (int i = 0; i < MAX_NAVES; i++) {
+        mapa->naves[i].activo = false;
+        mapa->naves[i].pid = 0;
+        mapa->naves[i].creditos = 0;
+    }
 }
 
 void mapa_desconectar(MapaCompartido *mapa)
@@ -168,6 +176,12 @@ void mapa_destruir_servidor(MapaCompartido *mapa)
 {
     if (mapa == NULL) {
         return;
+    }
+
+    for (int i = 0; i < MAX_ASTEROIDES; i++) {
+        if (mapa->asteroides[i].activo) {
+            pthread_mutex_destroy(&mapa->asteroides[i].mutex);
+        }
     }
 
     destruir_semaforos(mapa);

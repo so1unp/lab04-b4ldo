@@ -22,8 +22,8 @@
 #include "../tools/movement.h"
 
 /* ─── Parámetros de juego de la Estación ────────────────────────── */
-#define FUEL_MAX_ESTACION          500
-#define FUEL_UMBRAL_ESTACION        50 /* 20% */
+#define FUEL_MAX_ESTACION          600
+#define FUEL_UMBRAL_ESTACION      200
 #define FUEL_DECREMENTO_ESTACION     2
 #define FUEL_INTERVALO_MS_ESTACION 1500
 
@@ -72,6 +72,11 @@ static int cargar_configuracion(const char *filename, Configuracion *config)
     config->precio_oxigeno = 5;
 
     FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
+        char path[128];
+        snprintf(path, sizeof(path), "../%s", filename);
+        fp = fopen(path, "r");
+    }
     if (fp == NULL) {
         return -1;
     }
@@ -153,11 +158,16 @@ static void registrar_transaccion(pid_t pid_nave, const char *operacion, const c
 }
 
 /* ─── Enviar alertas de Deuterio a todas las naves del cuadrante ─── */
-static void enviar_alerta_deuterio(void)
+static void enviar_alerta_deuterio(bool activa)
 {
     DIR *dir = opendir("bin");
     if (!dir) {
-        return;
+        dir = opendir(".");
+        if (!dir) {
+            printf("[ESTACION (%d,%d)] Error: No se pudo abrir ni 'bin' ni '.' para buscar PIDs de naves.\n", g.x, g.y);
+            fflush(stdout);
+            return;
+        }
     }
 
     struct dirent *entry;
@@ -173,13 +183,63 @@ static void enviar_alerta_deuterio(void)
                 msg.es_alerta = true;
                 msg.estacion_x = g.x;
                 msg.estacion_y = g.y;
-                msg.exito = false;
+                msg.exito = activa; // true si la alerta está activa, false si está resuelta/cancelada
                 msg.cantidad = 0;
-                snprintf(msg.mensaje, sizeof(msg.mensaje), "Estacion (%d,%d) necesita deuterio de forma urgente.", g.x, g.y);
+                if (activa) {
+                    snprintf(msg.mensaje, sizeof(msg.mensaje), "Estacion (%d,%d) necesita deuterio de forma urgente.", g.x, g.y);
+                } else {
+                    snprintf(msg.mensaje, sizeof(msg.mensaje), "Estacion (%d,%d) alerta resuelta.", g.x, g.y);
+                }
 
                 if (mq_send(mq_nave, (const char *)&msg, sizeof(msg), 0) == -1) {
-                    /* Ignorar fallo de canal lleno */
+                    printf("[ESTACION (%d,%d)] Fallo al enviar alerta por mq_send a nave PID %d (errno: %d)\n", 
+                           g.x, g.y, pid_nave, errno);
+                    fflush(stdout);
+                } else {
+                    printf("[ESTACION (%d,%d)] Alerta de deuterio (%s) enviada con exito a nave PID %d\n", 
+                           g.x, g.y, activa ? "ACTIVA" : "RESUELTA", pid_nave);
+                    fflush(stdout);
                 }
+                mq_close(mq_nave);
+            } else {
+                printf("[ESTACION (%d,%d)] No se pudo abrir la cola de mensajes %s para la nave PID %d (errno: %d)\n",
+                       g.x, g.y, mq_nave_name, pid_nave, errno);
+                fflush(stdout);
+            }
+        }
+    }
+    closedir(dir);
+}
+
+/* ─── Enviar alerta de explosión a todas las naves ─── */
+static void enviar_explosion_estacion(void)
+{
+    DIR *dir = opendir("bin");
+    if (!dir) {
+        dir = opendir(".");
+        if (!dir) {
+            return;
+        }
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        int pid_nave;
+        if (sscanf(entry->d_name, "nave_%d.pid", &pid_nave) == 1) {
+            char mq_nave_name[64];
+            snprintf(mq_nave_name, sizeof(mq_nave_name), "/nave_mq_%d", pid_nave);
+
+            mqd_t mq_nave = mq_open(mq_nave_name, O_WRONLY | O_NONBLOCK);
+            if (mq_nave != (mqd_t)-1) {
+                MensajeNave msg;
+                msg.es_alerta = true;
+                msg.estacion_x = g.x;
+                msg.estacion_y = g.y;
+                msg.exito = true; // Activa
+                msg.cantidad = -1; // -1 indica explosión
+                snprintf(msg.mensaje, sizeof(msg.mensaje), "Estacion (%d,%d) EXPLOTO.", g.x, g.y);
+
+                mq_send(mq_nave, (const char *)&msg, sizeof(msg), 0);
                 mq_close(mq_nave);
             }
         }
@@ -193,6 +253,7 @@ static void *hilo_combustible(void *arg)
     (void)arg;
     time_t ultima_alerta = 0;
     int ultimo_combustible = -1;
+    bool alerta_enviada = false;
 
     while (g.activo) {
         int fuel = barra_get_valor(&g.estacion.barra_combustible);
@@ -204,21 +265,30 @@ static void *hilo_combustible(void *arg)
 
             if (fuel <= 0) {
                 printf("[ESTACION (%d,%d)] ¡CRÍTICO! Combustible en 0. Apagando sistemas...\n", g.x, g.y);
+                enviar_explosion_estacion();
                 pthread_mutex_lock(&g.mx_estado);
                 g.activo = 0;
                 pthread_mutex_unlock(&g.mx_estado);
                 break;
             }
 
-            /* Si está por debajo del umbral, mandar alerta cada 8 segundos */
+            /* Si está por debajo del umbral, mandar alerta periódicamente */
             if (fuel <= FUEL_UMBRAL_ESTACION) {
                 time_t ahora = time(NULL);
-                if (ahora - ultima_alerta >= 8) {
+                if (!alerta_enviada || ahora - ultima_alerta >= 8) {
                     printf("[ESTACION (%d,%d)] Alerta de combustible bajo (%d/%d). Solicitando Deuterio...\n",
                            g.x, g.y, fuel, FUEL_MAX_ESTACION);
-                    enviar_alerta_deuterio();
+                    enviar_alerta_deuterio(true);
+                    alerta_enviada = true;
                     ultima_alerta = ahora;
                 }
+            }
+            /* Si recuperamos por encima del umbral y teníamos una alerta enviada, mandar la cancelación */
+            else if (fuel > FUEL_UMBRAL_ESTACION && alerta_enviada) {
+                printf("[ESTACION (%d,%d)] Combustible recuperado (%d/%d). Cancelando alerta...\n",
+                       g.x, g.y, fuel, FUEL_MAX_ESTACION);
+                enviar_alerta_deuterio(false);
+                alerta_enviada = false;
             }
         }
 
@@ -321,6 +391,12 @@ static void limpiar_recursos_ipc(void)
 {
     g.activo = 0;
 
+    if (g.mapa && g.y >= 0 && g.y < MAP_ROWS && g.x >= 0 && g.x < MAP_COLS) {
+        if (g.mapa->celdas[g.y][g.x] == CHAR_ESTACION) {
+            liberar_posicion(g.mapa, g.x, g.y);
+        }
+    }
+
     if (g.mq_fd != (mqd_t)-1) {
         mq_close(g.mq_fd);
         g.mq_fd = (mqd_t)-1;
@@ -352,30 +428,62 @@ static void handle_signal(int sig)
 /* ─── Búsqueda y adquisición de posición 'E' en el mapa ─────────── */
 static bool adquirir_estacion_libre(void)
 {
+    // 1. Contar estaciones activas en el mapa compartido
+    int estaciones_activas = 0;
     for (int r = 0; r < MAP_ROWS; r++) {
         for (int c = 0; c < MAP_COLS; c++) {
             if (g.mapa->celdas[r][c] == CHAR_ESTACION) {
-                char mq_test[64];
-                snprintf(mq_test, sizeof(mq_test), "/estacion_mq_%d_%d", c, r);
-
-                struct mq_attr attr;
-                attr.mq_flags = 0;
-                attr.mq_maxmsg = 10;
-                attr.mq_msgsize = sizeof(MensajeEstacion);
-                attr.mq_curmsgs = 0;
-
-                mqd_t fd = mq_open(mq_test, O_RDONLY | O_CREAT | O_EXCL, 0660, &attr);
-                if (fd != (mqd_t)-1) {
-                    g.mq_fd = fd;
-                    g.x = c;
-                    g.y = r;
-                    strncpy(g.mq_name, mq_test, sizeof(g.mq_name));
-                    return true;
-                }
+                estaciones_activas++;
             }
         }
     }
-    return false;
+
+    if (estaciones_activas >= 3) {
+        fprintf(stderr, "[ESTACION] Error: Limite maximo de estaciones activas (3) alcanzado en el mapa.\n");
+        return false;
+    }
+
+    // 2. Intentar buscar una celda vacia aleatoria
+    srand((unsigned int)(time(NULL) ^ (time_t)getpid()));
+    bool exito = false;
+    int intentos = 0;
+    int r = 0, c = 0;
+    while (!exito && intentos < 10000) {
+        c = rand() % MAP_COLS;
+        r = rand() % MAP_ROWS;
+        if (g.mapa->celdas[r][c] == CHAR_VACIO) {
+            exito = adquirir_posicion_inicial(g.mapa, c, r, CHAR_ESTACION, false);
+        }
+        intentos++;
+    }
+
+    if (!exito) {
+        fprintf(stderr, "[ESTACION] Error: No se pudo encontrar y adquirir una celda vacia para posicionar la estacion.\n");
+        return false;
+    }
+
+    // 3. Crear cola de mensajes exclusiva para esta posicion
+    char mq_test[64];
+    snprintf(mq_test, sizeof(mq_test), "/estacion_mq_%d_%d", c, r);
+
+    struct mq_attr attr;
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = 10;
+    attr.mq_msgsize = sizeof(MensajeEstacion);
+    attr.mq_curmsgs = 0;
+
+    mqd_t fd = mq_open(mq_test, O_RDONLY | O_CREAT | O_EXCL, 0660, &attr);
+    if (fd == (mqd_t)-1) {
+        perror("[ESTACION] mq_open para cola de la estacion fallo");
+        liberar_posicion(g.mapa, c, r);
+        return false;
+    }
+
+    g.mq_fd = fd;
+    g.x = c;
+    g.y = r;
+    strncpy(g.mq_name, mq_test, sizeof(g.mq_name));
+    return true;
 }
 
 /* ─── main de la Estación ───────────────────────────────────────── */
@@ -424,6 +532,10 @@ int main(int argc, char *argv[])
     /* 5. Registrar PID de la estación */
     snprintf(g.pid_file, sizeof(g.pid_file), "bin/estacion_%d_%d.pid", g.x, g.y);
     int pfd = open(g.pid_file, O_WRONLY | O_CREAT | O_TRUNC, 0660);
+    if (pfd == -1) {
+        snprintf(g.pid_file, sizeof(g.pid_file), "estacion_%d_%d.pid", g.x, g.y);
+        pfd = open(g.pid_file, O_WRONLY | O_CREAT | O_TRUNC, 0660);
+    }
     if (pfd != -1) {
         char pid_str[16];
         int len = snprintf(pid_str, sizeof(pid_str), "%d", getpid());

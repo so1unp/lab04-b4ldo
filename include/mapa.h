@@ -3,10 +3,14 @@
 
 #include <stddef.h>
 #include <semaphore.h>
+#include <stdbool.h>
+#include "asteroide.h"
 
 #define MAP_ROWS 24
 #define MAP_COLS 80
 #define MAPA_SHM_NAME "/juego_mapa"
+#define MAX_ASTEROIDES 50
+#define MAX_NAVES 10
 
 // Representación de los elementos en el mapa
 #define CHAR_VACIO ' '
@@ -15,8 +19,16 @@
 #define CHAR_ESTACION 'E'
 
 typedef struct {
+    int pid;
+    int creditos;
+    bool activo;
+} RegistroNave;
+
+typedef struct {
     char celdas[MAP_ROWS][MAP_COLS];
     sem_t semaforos[MAP_ROWS][MAP_COLS];
+    ASTEROIDE asteroides[MAX_ASTEROIDES];
+    RegistroNave naves[MAX_NAVES];
 } MapaCompartido;
 
 MapaCompartido *mapa_crear_servidor(void);

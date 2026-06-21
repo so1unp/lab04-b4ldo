@@ -9,3 +9,73 @@
 [2026-06-20 19:41:32] Estacion (26,7) | Nave PID 14198 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
 [2026-06-20 19:44:37] Estacion (12,14) | Nave PID 15100 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 1 cantidad: 10 | Resultado: EXITO
 [2026-06-20 19:44:37] Estacion (12,14) | Nave PID 15100 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 5 | Resultado: EXITO
+[2026-06-20 21:19:36] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:37] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:37] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:38] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:38] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:38] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:39] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:43] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:43] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:19:44] Estacion (64,5) | Nave PID 66342 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:33:44] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:33:45] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:06] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:06] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:06] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:07] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:07] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:07] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:34:19] Estacion (44,10) | Nave PID 66994 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 2 cantidad: 60 | Resultado: EXITO
+[2026-06-20 21:34:19] Estacion (44,10) | Nave PID 66994 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 3 cantidad: 60 | Resultado: EXITO
+[2026-06-20 21:34:25] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:25] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:34:41] Estacion (44,10) | Nave PID 66994 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:42:04] Estacion (57,13) | Nave PID 67614 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:04] Estacion (57,13) | Nave PID 67614 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:04] Estacion (57,13) | Nave PID 67614 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:05] Estacion (57,13) | Nave PID 67614 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:05] Estacion (57,13) | Nave PID 67614 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:50] Estacion (57,13) | Nave PID 67689 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:50] Estacion (57,13) | Nave PID 67689 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:50] Estacion (57,13) | Nave PID 67689 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:50] Estacion (57,13) | Nave PID 67689 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:42:50] Estacion (57,13) | Nave PID 67689 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:33] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:34] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:34] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:34] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:35] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:35] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:47:35] Estacion (69,23) | Nave PID 67950 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:29] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:30] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:30] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:39] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:41] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:41] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:41] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:41] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:42] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:42] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:52] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:52] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 21:54:53] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 21:54:53] Estacion (11,10) | Nave PID 68463 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible insuficiente (solicitado: 40) | Resultado: FALLIDO
+[2026-06-20 22:08:37] Estacion (60,7) | Nave PID 69570 | Operacion: VENTA MINERAL | Detalle: Mineral Tipo 1 cantidad: 60 | Resultado: EXITO
+[2026-06-20 22:08:37] Estacion (60,7) | Nave PID 69570 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 60 | Resultado: EXITO
+[2026-06-20 22:08:44] Estacion (60,7) | Nave PID 69570 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 22:08:44] Estacion (60,7) | Nave PID 69570 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 22:08:45] Estacion (60,7) | Nave PID 69570 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
+[2026-06-20 22:08:56] Estacion (60,7) | Nave PID 69570 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 20 | Resultado: EXITO

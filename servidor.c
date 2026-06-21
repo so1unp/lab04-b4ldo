@@ -99,21 +99,7 @@ int cargar_configuracion(const char *filename, Configuracion *config) {
 void generar_entorno(MapaCompartido *mapa, const Configuracion *config) {
     srand((unsigned int)time(NULL));
 
-    // Posicionar estaciones
-    for (int i = 0; i < config->estaciones; i++) {
-        int x, y;
-        bool exito = false;
-        int intentos = 0;
-        while (!exito && intentos < 10000) {
-            x = rand() % MAP_COLS;
-            y = rand() % MAP_ROWS;
-            exito = adquirir_posicion_inicial(mapa, x, y, CHAR_ESTACION, false);
-            intentos++;
-        }
-        if (!exito) {
-            fprintf(stderr, "[SERVIDOR] No se pudo ubicar estación %d: mapa lleno.\n", i + 1);
-        }
-    }
+    // Las estaciones se posicionan de manera dinámica al lanzar su propio proceso cliente.
 
     // Posicionar asteroides
     for (int i = 0; i < config->asteroides; i++) {
@@ -128,6 +114,52 @@ void generar_entorno(MapaCompartido *mapa, const Configuracion *config) {
         }
         if (!exito) {
             fprintf(stderr, "[SERVIDOR] No se pudo ubicar asteroide %d: mapa lleno.\n", i + 1);
+        } else {
+            // Buscar un slot libre para el asteroide en la memoria compartida
+            int ast_idx = -1;
+            for (int k = 0; k < MAX_ASTEROIDES; k++) {
+                if (!mapa->asteroides[k].activo) {
+                    ast_idx = k;
+                    break;
+                }
+            }
+            if (ast_idx != -1) {
+                ASTEROIDE *ast = &mapa->asteroides[ast_idx];
+                ast->pos_x = x;
+                ast->pos_y = y;
+                ast->base.id = ast_idx;
+                ast->base.tipo = TIPO_ASTEROIDE;
+                ast->base.x = (float)x;
+                ast->base.y = (float)y;
+                ast->base.velocidad = 0.0f;
+
+                // Inicializar mutex compartido para permitir concurrencia de naves minando
+                pthread_mutexattr_t attr;
+                pthread_mutexattr_init(&attr);
+                pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+                pthread_mutex_init(&ast->mutex, &attr);
+                pthread_mutexattr_destroy(&attr);
+
+                // Asignar minerales de forma aleatoria (mínimo 1 mineral)
+                bool tiene_mineral = false;
+                for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+                    if (rand() % 100 < 75) { // 75% de probabilidad para cada recurso
+                        ast->minerales[m] = 100 + (rand() % 401); // Entre 100 y 500 unidades
+                        tiene_mineral = true;
+                    } else {
+                        ast->minerales[m] = 0;
+                    }
+                }
+
+                // Garantizar al menos Deuterio si todos salieron en 0
+                if (!tiene_mineral) {
+                    ast->minerales[MINERAL_DEUTERIO] = 200;
+                }
+
+                ast->activo = true;
+            } else {
+                fprintf(stderr, "[SERVIDOR] No hay ranuras de asteroides libres en memoria compartida.\n");
+            }
         }
     }
 }
