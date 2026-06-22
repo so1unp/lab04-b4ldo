@@ -495,7 +495,7 @@ static void sincronizar_escudo_desde_shm(void)
     int actual_escudo = barra_get_valor(&g.nave.barra_escudo);
     if (shm_escudo < actual_escudo) {
         int danio = actual_escudo - shm_escudo;
-        snprintf(g.hud_error, sizeof(g.hud_error), "¡Te hicieron daño! -%d Escudo", danio);
+        snprintf(g.hud_error, sizeof(g.hud_error), "¡Te atacaron! -%d Escudo", danio);
         g.hud_error_recibido = time(NULL);
     }
 
@@ -1156,10 +1156,10 @@ int main(int argc, char *argv[])
             }
             g.hud_error_recibido = time(NULL);
             g.vivo = 0;
-        } else {
-            sincronizar_escudo_desde_shm();
-            dormir_ms(100);
+            break;
         }
+        sincronizar_escudo_desde_shm();
+        dormir_ms(100);
     }
     sleep(2);   /* pausa para que el jugador lea el GAME OVER       */
 
