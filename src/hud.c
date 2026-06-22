@@ -141,8 +141,8 @@ static void render_frame(void)
     mvwprintw(win_hud, 18, 1, "Controles:");
     mvwprintw(win_hud, 19, 1, " WASD  mover");
 
-    // Iluminar 'E extraer' si hay un asteroide adyacente en el mapa
-    bool asteroide_cerca = false;
+    // Iluminar 'E extraer/lootear' si hay un asteroide o nave incapacitada adyacente
+    bool objetivo_cerca = false;
     {
         int dx_dirs[] = {0, 0, -1, 1};
         int dy_dirs[] = {-1, 1, 0, 0};
@@ -151,19 +151,30 @@ static void render_frame(void)
             int ny = g.y + dy_dirs[i];
             if (nx >= 0 && nx < MAP_COLS && ny >= 0 && ny < MAP_ROWS) {
                 if (g.mapa->celdas[ny][nx] == CHAR_ASTEROIDE) {
-                    asteroide_cerca = true;
+                    objetivo_cerca = true;
                     break;
+                } else if (g.mapa->celdas[ny][nx] == CHAR_NAVE) {
+                    for (int j = 0; j < MAX_NAVES; j++) {
+                        if (g.mapa->naves[j].activo && 
+                            g.mapa->naves[j].incapacitada &&
+                            g.mapa->naves[j].pos_x == nx && 
+                            g.mapa->naves[j].pos_y == ny) {
+                            objetivo_cerca = true;
+                            break;
+                        }
+                    }
+                    if (objetivo_cerca) break;
                 }
             }
         }
     }
 
-    if (asteroide_cerca) {
+    if (objetivo_cerca) {
         wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
-        mvwprintw(win_hud, 20, 1, " E     extraer");
+        mvwprintw(win_hud, 20, 1, " E     ext/loot ");
         wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
     } else {
-        mvwprintw(win_hud, 20, 1, " E     extraer");
+        mvwprintw(win_hud, 20, 1, " E     ext/loot ");
     }
 
     if (g.en_hangar) {

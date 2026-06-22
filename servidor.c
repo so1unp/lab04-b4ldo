@@ -210,6 +210,15 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Inicializar mutexes de las naves en memoria compartida
+    pthread_mutexattr_t attr_nave;
+    pthread_mutexattr_init(&attr_nave);
+    pthread_mutexattr_setpshared(&attr_nave, PTHREAD_PROCESS_SHARED);
+    for (int i = 0; i < MAX_NAVES; i++) {
+        pthread_mutex_init(&mapa->naves[i].mutex, &attr_nave);
+    }
+    pthread_mutexattr_destroy(&attr_nave);
+
     // Inicializar tarifas comerciales en memoria compartida
     mapa->tarifas.precio_deuterio = config.precio_deuterio;
     mapa->tarifas.precio_mutexio = config.precio_mutexio;

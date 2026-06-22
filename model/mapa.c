@@ -184,6 +184,9 @@ void mapa_destruir_servidor(MapaCompartido *mapa)
             pthread_mutex_destroy(&mapa->asteroides[i].mutex);
         }
     }
+    for (int i = 0; i < MAX_NAVES; i++) {
+        pthread_mutex_destroy(&mapa->naves[i].mutex);
+    }
 
     destruir_semaforos(mapa);
     mapa_desconectar(mapa);

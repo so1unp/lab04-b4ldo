@@ -23,6 +23,13 @@ typedef struct {
     int pid;
     int creditos;
     bool activo;
+    bool incapacitada;
+    int pos_x;
+    int pos_y;
+    int inventario[CANTIDAD_RECURSOS];
+    int combustible;
+    int oxigeno;
+    pthread_mutex_t mutex;
 } RegistroNave;
 
 typedef struct {
