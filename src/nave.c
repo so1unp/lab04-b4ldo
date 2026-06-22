@@ -824,7 +824,15 @@ int main(int argc, char *argv[])
     pthread_create(&t_radar, NULL, hilo_radar,         NULL);
 
     /* Loop principal: espera a que el juego termine */
-    while (g.vivo) dormir_ms(100);
+    while (g.vivo) {
+        if (!g.mapa->servidor_activo) {
+            strncpy(g.hud_error, "SERVIDOR DESCONECTADO", sizeof(g.hud_error));
+            g.hud_error_recibido = time(NULL);
+            g.vivo = 0;
+            break;
+        }
+        dormir_ms(100);
+    }
     sleep(2);   /* pausa para que el jugador lea el GAME OVER       */
 
     /* 7. Limpieza */

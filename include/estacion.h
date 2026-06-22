@@ -35,6 +35,7 @@ typedef struct {
     Barra barra_combustible;
     int capacidad;
     int ocupacion;
+    int creditos;
 } ESTACION;
 
 #endif /* ESTACION_H */

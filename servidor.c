@@ -164,6 +164,18 @@ void generar_entorno(MapaCompartido *mapa, const Configuracion *config) {
     }
 }
 
+// Función para guardar el estado del mapa en un archivo
+void guardar_estado(const MapaCompartido *mapa) {
+    FILE *fp = fopen("estado_servidor.dat", "wb");
+    if (fp) {
+        fwrite(mapa, sizeof(MapaCompartido), 1, fp);
+        fclose(fp);
+        printf("[SERVIDOR] Estado del juego guardado exitosamente en estado_servidor.dat.\n");
+    } else {
+        perror("[SERVIDOR] Error al guardar el estado del servidor");
+    }
+}
+
 int main(int argc, char *argv[])
 {
     (void)argc;
@@ -230,6 +242,12 @@ int main(int argc, char *argv[])
     }
 
     printf("\n[SERVIDOR] Apagando el servidor...\n");
+
+    // Guardar estado y notificar a los clientes
+    guardar_estado(mapa);
+    mapa->servidor_activo = false;
+    printf("[SERVIDOR] Notificando a los clientes para que se desconecten (esperando 2 seg)...\n");
+    sleep(2);
 
     // 6. Destruir el mapa compartido y limpiar semáforos
     mapa_destruir_servidor(mapa);

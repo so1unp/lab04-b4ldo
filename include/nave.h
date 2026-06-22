@@ -58,7 +58,7 @@ typedef struct {
 
     /* Alertas y errores */
     AlertaEstacion    alertas[3];
-    char              hud_error[80];
+    char              hud_error[140];
     time_t            hud_error_recibido;
     int               nave_slot_shm; // Slot de esta nave en la SHM para puntuación
 } EstadoNave;
