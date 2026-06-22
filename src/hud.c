@@ -144,52 +144,56 @@ static void render_frame(void)
     hud_barra(18, prog, 100, 7, 7); // Color 7 (cyan) para carga
 
     /* Controles dinámicos */
-    mvwprintw(win_hud, 20, 1, "Controles:");
-    mvwprintw(win_hud, 21, 1, " WASD  mover");
+    if (g.en_hangar) {
+        mvwprintw(win_hud, 20, 1, "Controles Hangar:");
+        wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
+        mvwprintw(win_hud, 21, 1, " V     vender");
+        mvwprintw(win_hud, 22, 1, " C     compra fuel");
+        mvwprintw(win_hud, 23, 1, " O     compra O2");
+        mvwprintw(win_hud, 24, 1, " H     salir hangar");
+        wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
+    } else {
+        mvwprintw(win_hud, 20, 1, "Controles:");
+        mvwprintw(win_hud, 21, 1, " WASD  mover");
 
-    // Iluminar 'E extraer/lootear' si hay un asteroide o nave incapacitada adyacente
-    bool objetivo_cerca = false;
-    {
-        int dx_dirs[] = {0, 0, -1, 1};
-        int dy_dirs[] = {-1, 1, 0, 0};
-        for (int i = 0; i < 4; i++) {
-            int nx = g.x + dx_dirs[i];
-            int ny = g.y + dy_dirs[i];
-            if (nx >= 0 && nx < MAP_COLS && ny >= 0 && ny < MAP_ROWS) {
-                if (g.mapa->celdas[ny][nx] == CHAR_ASTEROIDE) {
-                    objetivo_cerca = true;
-                    break;
-                } else if (g.mapa->celdas[ny][nx] == CHAR_NAVE) {
-                    for (int j = 0; j < MAX_NAVES; j++) {
-                        if (g.mapa->naves[j].activo && 
-                            g.mapa->naves[j].incapacitada &&
-                            g.mapa->naves[j].pos_x == nx && 
-                            g.mapa->naves[j].pos_y == ny) {
-                            objetivo_cerca = true;
-                            break;
+        // Iluminar 'E extraer/lootear' si hay un asteroide o nave incapacitada adyacente
+        bool objetivo_cerca = false;
+        {
+            int dx_dirs[] = {0, 0, -1, 1};
+            int dy_dirs[] = {-1, 1, 0, 0};
+            for (int i = 0; i < 4; i++) {
+                int nx = g.x + dx_dirs[i];
+                int ny = g.y + dy_dirs[i];
+                if (nx >= 0 && nx < MAP_COLS && ny >= 0 && ny < MAP_ROWS) {
+                    if (g.mapa->celdas[ny][nx] == CHAR_ASTEROIDE) {
+                        objetivo_cerca = true;
+                        break;
+                    } else if (g.mapa->celdas[ny][nx] == CHAR_NAVE) {
+                        for (int j = 0; j < MAX_NAVES; j++) {
+                            if (g.mapa->naves[j].activo && 
+                                g.mapa->naves[j].incapacitada &&
+                                g.mapa->naves[j].pos_x == nx && 
+                                g.mapa->naves[j].pos_y == ny) {
+                                objetivo_cerca = true;
+                                break;
+                            }
                         }
+                        if (objetivo_cerca) break;
                     }
-                    if (objetivo_cerca) break;
                 }
             }
         }
-    }
 
-    if (objetivo_cerca) {
-        wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
-        mvwprintw(win_hud, 22, 1, " E     ext/loot ");
-        wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
-    } else {
-        mvwprintw(win_hud, 22, 1, " E     ext/loot ");
-    }
+        if (objetivo_cerca) {
+            wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
+            mvwprintw(win_hud, 22, 1, " E     ext/loot ");
+            wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
+        } else {
+            mvwprintw(win_hud, 22, 1, " E     ext/loot ");
+        }
 
-    mvwprintw(win_hud, 23, 1, " F     disparar");
+        mvwprintw(win_hud, 23, 1, " F     disparar");
 
-    if (g.en_hangar) {
-        mvwprintw(win_hud, 24, 1, " V     vender");
-        mvwprintw(win_hud, 24, 12, " C/O  fuel/O2");
-        mvwprintw(win_hud, 24, 25, " H    salir hangar");
-    } else {
         bool estacion_cerca = false;
         int dx_dirs[] = {0, 0, -1, 1};
         int dy_dirs[] = {-1, 1, 0, 0};

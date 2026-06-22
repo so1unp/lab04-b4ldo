@@ -52,7 +52,17 @@
 EstadoNave      g;
 static sem_t   *g_sem_economia = SEM_FAILED;
 
-
+typedef enum {
+    ACCION_NINGUNA,
+    ACCION_MOVER,
+    ACCION_EXTRAER,
+    ACCION_HANGAR,
+    ACCION_VENTA,
+    ACCION_COMPRA_FUEL,
+    ACCION_COMPRA_O2,
+    ACCION_DISPARAR,
+    ACCION_SALIR
+} AccionTeclado;
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 static long long obtener_tiempo_ms(void)
@@ -173,7 +183,7 @@ static void intentar_ingresar_hangar(void)
     int ex = -1, ey = -1;
     bool encontrada = false;
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4 && !encontrada; i++) {
         int nx = g.x + dx_dirs[i];
         int ny = g.y + dy_dirs[i];
         if (nx >= 0 && nx < MAP_COLS && ny >= 0 && ny < MAP_ROWS) {
@@ -181,7 +191,6 @@ static void intentar_ingresar_hangar(void)
                 ex = nx;
                 ey = ny;
                 encontrada = true;
-                break;
             }
         }
     }
@@ -486,7 +495,7 @@ static void sincronizar_escudo_desde_shm(void)
     int actual_escudo = barra_get_valor(&g.nave.barra_escudo);
     if (shm_escudo < actual_escudo) {
         int danio = actual_escudo - shm_escudo;
-        snprintf(g.hud_error, sizeof(g.hud_error), "¡Te atacaron! -%d Escudo", danio);
+        snprintf(g.hud_error, sizeof(g.hud_error), "¡Te hicieron daño! -%d Escudo", danio);
         g.hud_error_recibido = time(NULL);
     }
 
@@ -616,7 +625,263 @@ static void disparar_misil(void)
     mostrar_notificacion_disparo(impacto, pid_impactado, escudo_restante);
 }
 
+
+
+static AccionTeclado obtener_accion_teclado(int ch, int *out_dx, int *out_dy)
+{
+    *out_dx = 0;
+    *out_dy = 0;
+    switch (ch) {
+        case 'w': case 'W': case KEY_UP:    *out_dy = -1; return ACCION_MOVER;
+        case 's': case 'S': case KEY_DOWN:  *out_dy =  1; return ACCION_MOVER;
+        case 'a': case 'A': case KEY_LEFT:  *out_dx = -1; return ACCION_MOVER;
+        case 'd': case 'D': case KEY_RIGHT: *out_dx =  1; return ACCION_MOVER;
+        case 'e': case 'E': return ACCION_EXTRAER;
+        case 'h': case 'H': return ACCION_HANGAR;
+        case 'v': case 'V': return ACCION_VENTA;
+        case 'c': case 'C': return ACCION_COMPRA_FUEL;
+        case 'o': case 'O': return ACCION_COMPRA_O2;
+        case 'f': case 'F': return ACCION_DISPARAR;
+        case 'q': case 'Q': return ACCION_SALIR;
+        default: return ACCION_NINGUNA;
+    }
+}
+
+static void realizar_movimiento(int dx, int dy)
+{
+    if (dx != 0 || dy != 0) {
+        pthread_mutex_lock(&g.mx_estado);
+        g.dir_x = dx;
+        g.dir_y = dy;
+        pthread_mutex_unlock(&g.mx_estado);
+    }
+
+    if (g.en_hangar && (dx != 0 || dy != 0)) {
+        salir_de_hangar();
+    }
+
+    pthread_mutex_lock(&g.mx_estado);
+    int xn = g.x + dx, yn = g.y + dy;
+    bool ok = intentar_mover_objeto(g.mapa, &g.x, &g.y, xn, yn, CHAR_NAVE, false);
+    pthread_mutex_unlock(&g.mx_estado);
+
+    if (ok) {
+        if (g.nave_slot_shm != -1) {
+            pthread_mutex_lock(&g.mapa->naves[g.nave_slot_shm].mutex);
+            g.mapa->naves[g.nave_slot_shm].pos_x = g.x;
+            g.mapa->naves[g.nave_slot_shm].pos_y = g.y;
+            pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
+        }
+        barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MOV);
+        if (barra_get_valor(&g.nave.barra_combustible) <= 0) {
+            game_over("combustible");
+        }
+    }
+}
+
+static void realizar_accion_hangar(void)
+{
+    if (g.en_hangar) {
+        salir_de_hangar();
+    } else {
+        intentar_ingresar_hangar();
+    }
+}
+
+static void realizar_extraccion_o_saqueo(void)
+{
+    pthread_mutex_lock(&g.mx_estado);
+    int ast_x = -1, ast_y = -1;
+    ASTEROIDE *ast = buscar_asteroide_adyacente(&ast_x, &ast_y);
+    if (ast == NULL) {
+        RegistroNave *nave_muerta = buscar_nave_incapacitada_adyacente(&ast_x, &ast_y);
+        if (nave_muerta != NULL) {
+            // Saqueo instantáneo
+            pthread_mutex_lock(&nave_muerta->mutex);
+            if (nave_muerta->activo && nave_muerta->incapacitada) {
+                int looted_fuel = nave_muerta->combustible;
+                int looted_o2 = nave_muerta->oxigeno;
+                for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+                    g.nave.inventario[m] += nave_muerta->inventario[m];
+                }
+                barra_modificar(&g.nave.barra_combustible, looted_fuel);
+                barra_modificar(&g.nave.barra_oxigeno, looted_o2);
+                
+                nave_muerta->activo = false;
+                nave_muerta->incapacitada = false;
+                liberar_posicion(g.mapa, ast_x, ast_y);
+                
+                snprintf(g.hud_error, sizeof(g.hud_error), "Loot! F:+%d O2:+%d", looted_fuel, looted_o2);
+                g.hud_error_recibido = time(NULL);
+            } else {
+                strncpy(g.hud_error, "La nave ya fue saqueada", sizeof(g.hud_error));
+                g.hud_error_recibido = time(NULL);
+            }
+            pthread_mutex_unlock(&nave_muerta->mutex);
+            g.prog_ext = -1;
+        } else {
+            strncpy(g.hud_error, "Nada cerca para extraer/saquear", sizeof(g.hud_error));
+            g.hud_error_recibido = time(NULL);
+            g.prog_ext = -1;
+            if (g.ast_anclado) {
+                pthread_mutex_unlock(&g.ast_anclado->mutex);
+                g.ast_anclado = NULL;
+            }
+        }
+    } else {
+        bool locked = false;
+        if (g.prog_ext < 0) {
+            // Anclaje Magnético
+            if (pthread_mutex_trylock(&ast->mutex) == 0) {
+                g.ast_anclado = ast;
+                g.prog_ext = 0;
+                locked = true;
+            } else {
+                strncpy(g.hud_error, "Asteroide ocupado!", sizeof(g.hud_error));
+                g.hud_error_recibido = time(NULL);
+            }
+        } else {
+            locked = true;
+        }
+
+        if (locked) {
+            g.prog_ext += 10;
+            g.ultimo_e_press = obtener_tiempo_ms();
+
+            if (g.prog_ext >= 100) {
+                g.prog_ext = -1;
+                ASTEROIDE *ast_fin = g.ast_anclado;
+                g.ast_anclado = NULL;
+                pthread_mutex_unlock(&g.mx_estado);
+
+                int extraido[CANTIDAD_RECURSOS] = {0};
+                int res_minado = asteroide_minar(ast_fin, extraido);
+                if (ast_fin != NULL) {
+                    pthread_mutex_unlock(&ast_fin->mutex);
+                }
+
+                pthread_mutex_lock(&g.mx_estado);
+                if (res_minado >= 0) {
+                    for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+                        g.nave.inventario[m] += extraido[m];
+                    }
+                    barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_EXT);
+                    char buffer[128];
+                    int offset = snprintf(buffer, sizeof(buffer), "Minado:\n");
+                    for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+                        if (extraido[m] > 0) {
+                            const char* nombre = "";
+                            switch (m) {
+                                case MINERAL_DEUTERIO:   nombre = "  Deu"; break;
+                                case MINERAL_MUTEXIO:    nombre = "  Mut"; break;
+                                case MINERAL_SEMAFORITA: nombre = "  Sem"; break;
+                                case MINERAL_KERNELIO:   nombre = "  Ker"; break;
+                            }
+                            offset += snprintf(buffer + offset, sizeof(buffer) - (size_t)offset, "%s: %d\n", nombre, extraido[m]);
+                        }
+                    }
+                    if (offset > 0 && buffer[offset - 1] == '\n') {
+                        buffer[offset - 1] = '\0';
+                    }
+                    strncpy(g.hud_error, buffer, sizeof(g.hud_error));
+                    g.hud_error_recibido = time(NULL);
+
+                    if (res_minado == 0) {
+                        liberar_posicion(g.mapa, ast_x, ast_y);
+                        strncpy(g.hud_error, "Asteroide AGOTADO!", sizeof(g.hud_error));
+                        g.hud_error_recibido = time(NULL);
+                    }
+                } else {
+                    strncpy(g.hud_error, "Asteroide ya vacio", sizeof(g.hud_error));
+                    g.hud_error_recibido = time(NULL);
+                }
+            }
+        }
+    }
+    pthread_mutex_unlock(&g.mx_estado);
+}
+
+static void ejecutar_accion_teclado(AccionTeclado accion, int dx, int dy)
+{
+    if (accion == ACCION_MOVER) {
+        realizar_movimiento(dx, dy);
+    } else if (accion == ACCION_EXTRAER) {
+        realizar_extraccion_o_saqueo();
+    } else if (accion == ACCION_HANGAR) {
+        realizar_accion_hangar();
+    } else if (accion == ACCION_VENTA) {
+        if (g.en_hangar) realizar_venta();
+    } else if (accion == ACCION_COMPRA_FUEL) {
+        if (g.en_hangar) realizar_compra_combustible();
+    } else if (accion == ACCION_COMPRA_O2) {
+        if (g.en_hangar) realizar_compra_oxigeno();
+    } else if (accion == ACCION_DISPARAR) {
+        disparar_misil();
+    } else if (accion == ACCION_SALIR) {
+        pthread_mutex_lock(&g.mx_estado);
+        g.vivo = 0;
+        pthread_mutex_unlock(&g.mx_estado);
+    }
+}
+
 /* ─── Hilos ────────────────────────────────────────────────────── */
+
+static void procesar_alerta_receptor(const MensajeNave *msg)
+{
+    pthread_mutex_lock(&g.mx_estado);
+    bool activa = msg->exito; // true = activa, false = resuelta
+    int found_idx = -1;
+    int empty_idx = -1;
+
+    for (int i = 0; i < 3 && found_idx == -1; i++) {
+        if (g.alertas[i].activa && g.alertas[i].x == msg->estacion_x && g.alertas[i].y == msg->estacion_y) {
+            found_idx = i;
+        }
+        if (!g.alertas[i].activa && empty_idx == -1) {
+            empty_idx = i;
+        }
+    }
+
+    if (activa) {
+        if (found_idx != -1) {
+            g.alertas[found_idx].timestamp = time(NULL);
+            if (msg->cantidad == -1) {
+                g.alertas[found_idx].explotada = true;
+            }
+        } else if (empty_idx != -1) {
+            g.alertas[empty_idx].x = msg->estacion_x;
+            g.alertas[empty_idx].y = msg->estacion_y;
+            g.alertas[empty_idx].activa = true;
+            g.alertas[empty_idx].timestamp = time(NULL);
+            if (msg->cantidad == -1) {
+                g.alertas[empty_idx].explotada = true;
+            }
+        }
+    } else {
+        if (found_idx != -1) {
+            g.alertas[found_idx].activa = false;
+        }
+    }
+    pthread_mutex_unlock(&g.mx_estado);
+}
+
+static void procesar_respuesta_receptor(const MensajeNave *msg)
+{
+    pthread_mutex_lock(&g.mx_estado);
+    g.ultima_respuesta = *msg;
+    g.hay_respuesta = true;
+    pthread_cond_signal(&g.cond_respuesta);
+    pthread_mutex_unlock(&g.mx_estado);
+}
+
+static void procesar_mensaje_receptor(const MensajeNave *msg)
+{
+    if (msg->es_alerta) {
+        procesar_alerta_receptor(msg);
+    } else {
+        procesar_respuesta_receptor(msg);
+    }
+}
 
 /* Hilo receptor de respuestas y de alertas de la cola de la nave */
 static void *hilo_receptor_nave(void *arg)
@@ -627,57 +892,16 @@ static void *hilo_receptor_nave(void *arg)
     char *buf = malloc((size_t)attr.mq_msgsize);
     if (!buf) return NULL;
 
-    while (g.vivo) {
+    bool continuar = true;
+    while (g.vivo && continuar) {
         ssize_t bytes = mq_receive(g.mq_respuesta, buf, (size_t)attr.mq_msgsize, NULL);
         if (bytes < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        if (!g.vivo) break;
-
-        MensajeNave *msg = (MensajeNave *)buf;
-        if (msg->es_alerta) {
-            pthread_mutex_lock(&g.mx_estado);
-            bool activa = msg->exito; // true = activa, false = resuelta
-            int found_idx = -1;
-            int empty_idx = -1;
-            for (int i = 0; i < 3; i++) {
-                if (g.alertas[i].activa && g.alertas[i].x == msg->estacion_x && g.alertas[i].y == msg->estacion_y) {
-                    found_idx = i;
-                    break;
-                }
-                if (!g.alertas[i].activa && empty_idx == -1) {
-                    empty_idx = i;
-                }
+            if (errno != EINTR) {
+                continuar = false;
             }
-
-            if (activa) {
-                if (found_idx != -1) {
-                    g.alertas[found_idx].timestamp = time(NULL);
-                    if (msg->cantidad == -1) {
-                        g.alertas[found_idx].explotada = true;
-                    }
-                } else if (empty_idx != -1) {
-                    g.alertas[empty_idx].x = msg->estacion_x;
-                    g.alertas[empty_idx].y = msg->estacion_y;
-                    g.alertas[empty_idx].activa = true;
-                    g.alertas[empty_idx].timestamp = time(NULL);
-                    if (msg->cantidad == -1) {
-                        g.alertas[empty_idx].explotada = true;
-                    }
-                }
-            } else {
-                if (found_idx != -1) {
-                    g.alertas[found_idx].activa = false;
-                }
-            }
-            pthread_mutex_unlock(&g.mx_estado);
-        } else {
-            pthread_mutex_lock(&g.mx_estado);
-            g.ultima_respuesta = *msg;
-            g.hay_respuesta = true;
-            pthread_cond_signal(&g.cond_respuesta);
-            pthread_mutex_unlock(&g.mx_estado);
+        } else if (g.vivo) {
+            const MensajeNave *msg = (const MensajeNave *)buf;
+            procesar_mensaje_receptor(msg);
         }
     }
     free(buf);
@@ -689,9 +913,9 @@ static void *hilo_soporte_vital(void *arg)
     (void)arg;
     while (g.vivo) {
         barra_esperar_notificacion(&g.nave.barra_oxigeno);
-        if (!g.vivo) break;
-        if (barra_get_valor(&g.nave.barra_oxigeno) <= 0)
+        if (g.vivo && barra_get_valor(&g.nave.barra_oxigeno) <= 0) {
             game_over("oxigeno");
+        }
     }
     return NULL;
 }
@@ -699,187 +923,14 @@ static void *hilo_soporte_vital(void *arg)
 static void *hilo_propulsion(void *arg)
 {
     (void)arg;
-
     while (g.vivo) {
-        /*
-         * Leer teclado desde stdscr con nodelay=TRUE.
-         * NO tomamos g_mx_ncurses aquí: getch() sobre stdscr es seguro
-         * en un único hilo lector, y evitamos bloquear hilo_radar.
-         */
         int ch = getch();
-        if (ch == ERR) { dormir_ms(10); continue; }
-
-        int dx = 0, dy = 0;
-        switch (ch) {
-            case 'w': case 'W': case KEY_UP:    dy = -1; break;
-            case 's': case 'S': case KEY_DOWN:  dy =  1; break;
-            case 'a': case 'A': case KEY_LEFT:  dx = -1; break;
-            case 'd': case 'D': case KEY_RIGHT: dx =  1; break;
-            case 'e': case 'E': {
-                pthread_mutex_lock(&g.mx_estado);
-                int ast_x = -1, ast_y = -1;
-                ASTEROIDE *ast = buscar_asteroide_adyacente(&ast_x, &ast_y);
-                if (ast == NULL) {
-                    RegistroNave *nave_muerta = buscar_nave_incapacitada_adyacente(&ast_x, &ast_y);
-                    if (nave_muerta != NULL) {
-                        // Saqueo instantáneo
-                        pthread_mutex_lock(&nave_muerta->mutex);
-                        if (nave_muerta->activo && nave_muerta->incapacitada) {
-                            int looted_fuel = nave_muerta->combustible;
-                            int looted_o2 = nave_muerta->oxigeno;
-                            for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
-                                g.nave.inventario[m] += nave_muerta->inventario[m];
-                            }
-                            barra_modificar(&g.nave.barra_combustible, looted_fuel);
-                            barra_modificar(&g.nave.barra_oxigeno, looted_o2);
-                            
-                            nave_muerta->activo = false;
-                            nave_muerta->incapacitada = false;
-                            liberar_posicion(g.mapa, ast_x, ast_y);
-                            
-                            snprintf(g.hud_error, sizeof(g.hud_error), "Loot! F:+%d O2:+%d", looted_fuel, looted_o2);
-                            g.hud_error_recibido = time(NULL);
-                        } else {
-                            strncpy(g.hud_error, "La nave ya fue saqueada", sizeof(g.hud_error));
-                            g.hud_error_recibido = time(NULL);
-                        }
-                        pthread_mutex_unlock(&nave_muerta->mutex);
-                        g.prog_ext = -1;
-                    } else {
-                        strncpy(g.hud_error, "Nada cerca para extraer/saquear", sizeof(g.hud_error));
-                        g.hud_error_recibido = time(NULL);
-                        g.prog_ext = -1;
-                        if (g.ast_anclado) {
-                            pthread_mutex_unlock(&g.ast_anclado->mutex);
-                            g.ast_anclado = NULL;
-                        }
-                    }
-                } else {
-                    if (g.prog_ext < 0) {
-                        // Anclaje Magnético
-                        if (pthread_mutex_trylock(&ast->mutex) == 0) {
-                            g.ast_anclado = ast;
-                            g.prog_ext = 0;
-                        } else {
-                            strncpy(g.hud_error, "Asteroide ocupado!", sizeof(g.hud_error));
-                            g.hud_error_recibido = time(NULL);
-                            pthread_mutex_unlock(&g.mx_estado);
-                            continue;
-                        }
-                    }
-                    g.prog_ext += 10;
-                    g.ultimo_e_press = obtener_tiempo_ms();
-
-                    if (g.prog_ext >= 100) {
-                        g.prog_ext = -1;
-                        ASTEROIDE *ast_fin = g.ast_anclado;
-                        g.ast_anclado = NULL;
-                        pthread_mutex_unlock(&g.mx_estado);
-
-                        int extraido[CANTIDAD_RECURSOS] = {0};
-                        int res_minado = asteroide_minar(ast_fin, extraido);
-                        // Liberar el anclaje después de extraer
-                        if (ast_fin != NULL) {
-                            pthread_mutex_unlock(&ast_fin->mutex);
-                        }
-
-                        pthread_mutex_lock(&g.mx_estado);
-                        if (res_minado >= 0) {
-                            for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
-                                g.nave.inventario[m] += extraido[m];
-                            }
-                            barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_EXT);
-                            char buffer[128];
-                            int offset = snprintf(buffer, sizeof(buffer), "Minado:\n");
-                            for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
-                                if (extraido[m] > 0) {
-                                    const char* nombre = "";
-                                    switch (m) {
-                                        case MINERAL_DEUTERIO:   nombre = "  Deu"; break;
-                                        case MINERAL_MUTEXIO:    nombre = "  Mut"; break;
-                                        case MINERAL_SEMAFORITA: nombre = "  Sem"; break;
-                                        case MINERAL_KERNELIO:   nombre = "  Ker"; break;
-                                    }
-                                    offset += snprintf(buffer + offset, sizeof(buffer) - (size_t)offset, "%s: %d\n", nombre, extraido[m]);
-                                }
-                            }
-                            if (offset > 0 && buffer[offset - 1] == '\n') {
-                                buffer[offset - 1] = '\0';
-                            }
-                            strncpy(g.hud_error, buffer, sizeof(g.hud_error));
-                            g.hud_error_recibido = time(NULL);
-
-                            if (res_minado == 0) {
-                                liberar_posicion(g.mapa, ast_x, ast_y);
-                                strncpy(g.hud_error, "Asteroide AGOTADO!", sizeof(g.hud_error));
-                                g.hud_error_recibido = time(NULL);
-                            }
-                        } else {
-                            strncpy(g.hud_error, "Asteroide ya vacio", sizeof(g.hud_error));
-                            g.hud_error_recibido = time(NULL);
-                        }
-                    }
-                }
-                pthread_mutex_unlock(&g.mx_estado);
-                continue;
-            }
-            case 'h': case 'H':
-                if (g.en_hangar) {
-                    salir_de_hangar();
-                } else {
-                    intentar_ingresar_hangar();
-                }
-                continue;
-            case 'v': case 'V':
-                if (g.en_hangar) realizar_venta();
-                continue;
-            case 'c': case 'C':
-                if (g.en_hangar) realizar_compra_combustible();
-                continue;
-            case 'o': case 'O':
-                if (g.en_hangar) realizar_compra_oxigeno();
-                continue;
-            case 'f': case 'F':
-                disparar_misil();
-                continue;
-            case 'q': case 'Q':
-                pthread_mutex_lock(&g.mx_estado);
-                g.vivo = 0;
-                pthread_mutex_unlock(&g.mx_estado);
-                continue;
-            default: continue;
-        }
-
-        if (!g.vivo) break;
-        if (barra_get_valor(&g.nave.barra_combustible) <= 0) continue;
-
-        if (dx != 0 || dy != 0) {
-            pthread_mutex_lock(&g.mx_estado);
-            g.dir_x = dx;
-            g.dir_y = dy;
-            pthread_mutex_unlock(&g.mx_estado);
-        }
-
-        /* Salir de hangar automáticamente si decide moverse */
-        if (g.en_hangar && (dx != 0 || dy != 0)) {
-            salir_de_hangar();
-        }
-
-        pthread_mutex_lock(&g.mx_estado);
-        int xn = g.x + dx, yn = g.y + dy;
-        bool ok = intentar_mover_objeto(g.mapa, &g.x, &g.y, xn, yn, CHAR_NAVE, false);
-        pthread_mutex_unlock(&g.mx_estado);
-
-        if (ok) {
-            if (g.nave_slot_shm != -1) {
-                pthread_mutex_lock(&g.mapa->naves[g.nave_slot_shm].mutex);
-                g.mapa->naves[g.nave_slot_shm].pos_x = g.x;
-                g.mapa->naves[g.nave_slot_shm].pos_y = g.y;
-                pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
-            }
-            barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MOV);
-            if (barra_get_valor(&g.nave.barra_combustible) <= 0)
-                game_over("combustible");
+        if (ch != ERR) {
+            int dx = 0, dy = 0;
+            AccionTeclado accion = obtener_accion_teclado(ch, &dx, &dy);
+            ejecutar_accion_teclado(accion, dx, dy);
+        } else {
+            dormir_ms(10);
         }
     }
     return NULL;
@@ -898,49 +949,43 @@ static void *hilo_extraccion(void *arg)
             nave_x = g.x;
             nave_y = g.y;
             pthread_mutex_unlock(&g.mx_estado);
-            continue;
-        }
-
-        // Si la nave se mueve, se aborta la extracción
-        if (g.x != nave_x || g.y != nave_y) {
-            g.prog_ext = -1;
-            if (g.ast_anclado) {
-                pthread_mutex_unlock(&g.ast_anclado->mutex);
-                g.ast_anclado = NULL;
-            }
-            strncpy(g.hud_error, "Minado cancelado:\n movimiento", sizeof(g.hud_error));
-            g.hud_error_recibido = time(NULL);
-            pthread_mutex_unlock(&g.mx_estado);
-            continue;
-        }
-
-        // Si la nave se queda sin combustible
-        if (barra_get_valor(&g.nave.barra_combustible) <= 0) {
-            g.prog_ext = -1;
-            if (g.ast_anclado) {
-                pthread_mutex_unlock(&g.ast_anclado->mutex);
-                g.ast_anclado = NULL;
-            }
-            pthread_mutex_unlock(&g.mx_estado);
-            game_over("combustible");
-            continue;
-        }
-
-        // Decaimiento por inactividad
-        long long delta = obtener_tiempo_ms() - g.ultimo_e_press;
-        if (delta > 600) { // Si pasan más de 600ms sin recibir 'e', decae el progreso
-            g.prog_ext -= 10;
-            if (g.prog_ext <= 0) {
+        } else {
+            // Si la nave se mueve, se aborta la extracción
+            if (g.x != nave_x || g.y != nave_y) {
                 g.prog_ext = -1;
                 if (g.ast_anclado) {
                     pthread_mutex_unlock(&g.ast_anclado->mutex);
                     g.ast_anclado = NULL;
                 }
-                strncpy(g.hud_error, "Minado cancelado:\n inactividad", sizeof(g.hud_error));
+                strncpy(g.hud_error, "Minado cancelado:\n movimiento", sizeof(g.hud_error));
                 g.hud_error_recibido = time(NULL);
+                pthread_mutex_unlock(&g.mx_estado);
+            } else if (barra_get_valor(&g.nave.barra_combustible) <= 0) {
+                g.prog_ext = -1;
+                if (g.ast_anclado) {
+                    pthread_mutex_unlock(&g.ast_anclado->mutex);
+                    g.ast_anclado = NULL;
+                }
+                pthread_mutex_unlock(&g.mx_estado);
+                game_over("combustible");
+            } else {
+                // Decaimiento por inactividad
+                long long delta = obtener_tiempo_ms() - g.ultimo_e_press;
+                if (delta > 600) { // Si pasan más de 600ms sin recibir 'e', decae el progreso
+                    g.prog_ext -= 10;
+                    if (g.prog_ext <= 0) {
+                        g.prog_ext = -1;
+                        if (g.ast_anclado) {
+                            pthread_mutex_unlock(&g.ast_anclado->mutex);
+                            g.ast_anclado = NULL;
+                        }
+                        strncpy(g.hud_error, "Minado cancelado:\n inactividad", sizeof(g.hud_error));
+                        g.hud_error_recibido = time(NULL);
+                    }
+                }
+                pthread_mutex_unlock(&g.mx_estado);
             }
         }
-        pthread_mutex_unlock(&g.mx_estado);
     }
     return NULL;
 }
@@ -1111,10 +1156,10 @@ int main(int argc, char *argv[])
             }
             g.hud_error_recibido = time(NULL);
             g.vivo = 0;
-            break;
+        } else {
+            sincronizar_escudo_desde_shm();
+            dormir_ms(100);
         }
-        sincronizar_escudo_desde_shm();
-        dormir_ms(100);
     }
     sleep(2);   /* pausa para que el jugador lea el GAME OVER       */
 
