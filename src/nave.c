@@ -475,6 +475,122 @@ static void realizar_compra_oxigeno(void)
     }
 }
 
+static void sincronizar_escudo_desde_shm(void)
+{
+    if (g.nave_slot_shm == -1) return;
+
+    pthread_mutex_lock(&g.mapa->naves[g.nave_slot_shm].mutex);
+    int shm_escudo = g.mapa->naves[g.nave_slot_shm].escudo;
+    pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
+
+    barra_set_valor(&g.nave.barra_escudo, shm_escudo);
+    if (shm_escudo <= 0) {
+        game_over("escudo");
+    }
+}
+
+static bool puede_disparar(void)
+{
+    if (g.en_hangar) {
+        strncpy(g.hud_error, "No puedes disparar en Hangar", sizeof(g.hud_error));
+        g.hud_error_recibido = time(NULL);
+        return false;
+    }
+    if (barra_get_valor(&g.nave.barra_combustible) < COSTO_FUEL_MISIL) {
+        strncpy(g.hud_error, "Combustible insuficiente para misil", sizeof(g.hud_error));
+        g.hud_error_recibido = time(NULL);
+        return false;
+    }
+    return true;
+}
+
+static void disparar_misil(void)
+{
+    if (!puede_disparar()) return;
+
+    // Descontar combustible
+    barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MISIL);
+
+    int tx = g.x;
+    int ty = g.y;
+    bool impacto = false;
+    int pid_impactado = 0;
+    int escudo_restante = 0;
+
+    for (int i = 1; i <= RANGO_MISIL; i++) {
+        tx += g.dir_x;
+        ty += g.dir_y;
+
+        // Chequear límites del mapa
+        if (tx < 0 || tx >= MAP_COLS || ty < 0 || ty >= MAP_ROWS) {
+            break;
+        }
+
+        char celda = g.mapa->celdas[ty][tx];
+
+        // Si choca con asteroide o estación, se detiene
+        if (celda == CHAR_ASTEROIDE || celda == CHAR_ESTACION) {
+            break;
+        }
+
+        // Si choca con una nave
+        if (celda == CHAR_NAVE) {
+            // Buscar qué nave es en la memoria compartida
+            lock_economia();
+            int target_slot = -1;
+            for (int j = 0; j < MAX_NAVES; j++) {
+                if (g.mapa->naves[j].activo && !g.mapa->naves[j].incapacitada &&
+                    g.mapa->naves[j].pos_x == tx && g.mapa->naves[j].pos_y == ty) {
+                    target_slot = j;
+                    break;
+                }
+            }
+            unlock_economia();
+
+            if (target_slot != -1) {
+                RegistroNave *target = &g.mapa->naves[target_slot];
+                pthread_mutex_lock(&target->mutex);
+                
+                // Verificar de nuevo bajo el mutex
+                if (target->activo && !target->incapacitada) {
+                    target->escudo -= DANIO_MISIL;
+                    if (target->escudo < 0) {
+                        target->escudo = 0;
+                    }
+                    escudo_restante = target->escudo;
+                    pid_impactado = target->pid;
+                    impacto = true;
+
+                    if (target->escudo == 0) {
+                        target->incapacitada = true;
+                    }
+                }
+                
+                pthread_mutex_unlock(&target->mutex);
+            }
+            break; // El misil explota al chocar con la nave
+        }
+
+        // Animación visual del misil viajando por el mapa
+        if (celda == CHAR_VACIO) {
+            g.mapa->celdas[ty][tx] = '*';
+            dormir_ms(50);
+            g.mapa->celdas[ty][tx] = CHAR_VACIO;
+        }
+    }
+
+    if (impacto) {
+        if (escudo_restante == 0) {
+            snprintf(g.hud_error, sizeof(g.hud_error), "¡Nave %d DESTRUIDA!", pid_impactado);
+        } else {
+            snprintf(g.hud_error, sizeof(g.hud_error), "¡Impacto en %d! Escudo: %d%%", pid_impactado, escudo_restante);
+        }
+    } else {
+        strncpy(g.hud_error, "Misil fallido", sizeof(g.hud_error));
+    }
+    g.hud_error_recibido = time(NULL);
+}
+
 /* ─── Hilos ────────────────────────────────────────────────────── */
 
 /* Hilo receptor de respuestas y de alertas de la cola de la nave */
@@ -698,6 +814,9 @@ static void *hilo_propulsion(void *arg)
             case 'o': case 'O':
                 if (g.en_hangar) realizar_compra_oxigeno();
                 continue;
+            case 'f': case 'F':
+                disparar_misil();
+                continue;
             case 'q': case 'Q':
                 pthread_mutex_lock(&g.mx_estado);
                 g.vivo = 0;
@@ -708,6 +827,13 @@ static void *hilo_propulsion(void *arg)
 
         if (!g.vivo) break;
         if (barra_get_valor(&g.nave.barra_combustible) <= 0) continue;
+
+        if (dx != 0 || dy != 0) {
+            pthread_mutex_lock(&g.mx_estado);
+            g.dir_x = dx;
+            g.dir_y = dy;
+            pthread_mutex_unlock(&g.mx_estado);
+        }
 
         /* Salir de hangar automáticamente si decide moverse */
         if (g.en_hangar && (dx != 0 || dy != 0)) {
@@ -720,6 +846,12 @@ static void *hilo_propulsion(void *arg)
         pthread_mutex_unlock(&g.mx_estado);
 
         if (ok) {
+            if (g.nave_slot_shm != -1) {
+                pthread_mutex_lock(&g.mapa->naves[g.nave_slot_shm].mutex);
+                g.mapa->naves[g.nave_slot_shm].pos_x = g.x;
+                g.mapa->naves[g.nave_slot_shm].pos_y = g.y;
+                pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
+            }
             barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MOV);
             if (barra_get_valor(&g.nave.barra_combustible) <= 0)
                 game_over("combustible");
@@ -845,6 +977,7 @@ int main(int argc, char *argv[])
             g.mapa->naves[i].creditos = 0;
             g.mapa->naves[i].activo = true;
             g.mapa->naves[i].incapacitada = false;
+            g.mapa->naves[i].escudo = ESCUDO_MAX;
             g.nave_slot_shm = i;
             break;
         }
@@ -896,6 +1029,10 @@ int main(int argc, char *argv[])
                FUEL_MAX, FUEL_UMBRAL, FUEL_DECREMENTO, FUEL_INTERVALO_MS);
     barra_init(&g.nave.barra_oxigeno,
                O2_MAX, O2_UMBRAL, O2_DECREMENTO, O2_INTERVALO_MS);
+    barra_init(&g.nave.barra_escudo,
+               ESCUDO_MAX, ESCUDO_UMBRAL, 0, 0); // No automatic decay
+    g.dir_x = 0;
+    g.dir_y = -1; // Face Up initially
 
     pthread_mutex_init(&g.mx_estado, NULL);
     pthread_cond_init(&g.cond_respuesta, NULL);
@@ -921,6 +1058,12 @@ int main(int argc, char *argv[])
     }
     g.nave.base.x = (float)g.x;
     g.nave.base.y = (float)g.y;
+    if (g.nave_slot_shm != -1) {
+        pthread_mutex_lock(&g.mapa->naves[g.nave_slot_shm].mutex);
+        g.mapa->naves[g.nave_slot_shm].pos_x = g.x;
+        g.mapa->naves[g.nave_slot_shm].pos_y = g.y;
+        pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
+    }
 
     /* 5. Inicializar ncurses */
     init_ncurses();
@@ -945,6 +1088,7 @@ int main(int argc, char *argv[])
             g.vivo = 0;
             break;
         }
+        sincronizar_escudo_desde_shm();
         dormir_ms(100);
     }
     sleep(2);   /* pausa para que el jugador lea el GAME OVER       */
@@ -994,6 +1138,7 @@ int main(int argc, char *argv[])
 
     barra_destroy(&g.nave.barra_combustible);
     barra_destroy(&g.nave.barra_oxigeno);
+    barra_destroy(&g.nave.barra_escudo);
     
     pthread_cond_destroy(&g.cond_respuesta);
     pthread_mutex_destroy(&g.mx_estado);

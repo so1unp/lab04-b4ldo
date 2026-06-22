@@ -58,6 +58,7 @@ typedef struct {
     int  inventario[CANTIDAD_RECURSOS];
     int  combustible;
     int  oxigeno;
+    int  escudo;
     pthread_mutex_t mutex;   /* PTHREAD_PROCESS_SHARED */
 } RegistroNave;
 

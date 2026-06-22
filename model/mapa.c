@@ -203,6 +203,7 @@ void mapa_limpiar(MapaCompartido *mapa)
         mapa->naves[i].activo = false;
         mapa->naves[i].pid = 0;
         mapa->naves[i].creditos = 0;
+        mapa->naves[i].escudo = 0;
     }
     mapa->servidor_activo = true;
     mapa->game_over_global = false;

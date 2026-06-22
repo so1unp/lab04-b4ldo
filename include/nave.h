@@ -14,11 +14,17 @@
 
 #define FUEL_MAX          100
 #define O2_MAX            100
+#define ESCUDO_MAX        100
+#define ESCUDO_UMBRAL     20
+#define RANGO_MISIL       7
+#define DANIO_MISIL       25
+#define COSTO_FUEL_MISIL  2
 
 typedef struct {
     ObjetoEspacial base;
     Barra barra_combustible;
     Barra barra_oxigeno;
+    Barra barra_escudo;
     int inventario[CANTIDAD_RECURSOS];
     int creditos;
 } Nave;
@@ -35,6 +41,7 @@ typedef struct {
     Nave              nave;
     MapaCompartido   *mapa;
     int               x, y;
+    int               dir_x, dir_y;
     volatile sig_atomic_t vivo;
     volatile sig_atomic_t extrayendo;
     long long         ultimo_e_press; // Tiempo del último toque al botón E en milisegundos

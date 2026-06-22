@@ -86,6 +86,7 @@ typedef struct {
     int  inventario[CANTIDAD_RECURSOS];
     int  combustible;
     int  oxigeno;
+    int  escudo;
     bool incapacitada;
 } NavePersistente;
 
@@ -230,6 +231,7 @@ static void guardar_estado(const MapaCompartido *mapa)
             record.pos_y = src->pos_y;
             record.combustible = src->combustible;
             record.oxigeno = src->oxigeno;
+            record.escudo = src->escudo;
             record.incapacitada = src->incapacitada;
             memcpy(record.inventario, src->inventario, sizeof(src->inventario));
 
