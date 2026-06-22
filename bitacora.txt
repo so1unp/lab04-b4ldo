@@ -128,3 +128,7 @@
 [2026-06-22 12:27:51] Estacion (29,7) | Nave PID 3049 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 33, Ingresos: 165 Cr | Resultado: EXITO
 [2026-06-22 12:44:41] Estacion (63,17) | Nave PID 3923 | Operacion: VENTA MINERAL | Detalle: Kernelio cantidad: 39, Pago: 1560 Cr | Resultado: EXITO
 [2026-06-22 12:44:41] Estacion (63,17) | Nave PID 3923 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 30, Pago: 300 Cr | Resultado: EXITO
+[2026-06-22 12:55:06] Estacion (14,1) | Nave PID 4736 | Operacion: VENTA MINERAL | Detalle: Kernelio cantidad: 18, Pago: 720 Cr | Resultado: EXITO
+[2026-06-22 12:55:06] Estacion (14,1) | Nave PID 4736 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 33, Pago: 330 Cr | Resultado: EXITO
+[2026-06-22 12:58:58] Estacion (5,7) | Nave PID 5256 | Operacion: VENTA MINERAL | Detalle: Semaforita cantidad: 11, Pago: 330 Cr | Resultado: EXITO
+[2026-06-22 12:58:58] Estacion (5,7) | Nave PID 5256 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 14, Pago: 140 Cr | Resultado: EXITO

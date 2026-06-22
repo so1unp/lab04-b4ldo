@@ -125,6 +125,7 @@ static void render_frame(void)
     /* Posición */
     mvwprintw(win_hud, 8,  1, "Posicion: X:%-2d Y:%-2d", g.x, g.y);
     mvwprintw(win_hud, 9,  1, "PID Nave: %-5d", getpid());
+    mvwprintw(win_hud, 10, 1, "Creditos: %-6d", g.nave.creditos);
 
     /* Inventario (Compactado en dos columnas para ahorrar espacio) */
     mvwprintw(win_hud, 11, 1, "Inventario");
