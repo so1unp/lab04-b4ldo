@@ -150,16 +150,6 @@ static void publicar_tarifas(MapaCompartido *mapa, const Configuracion *config)
     mapa->tarifas.precio_oxigeno     = config->precio_oxigeno;
 }
 
-/* ── Contar estaciones activas en el mapa ───────────────────────────────── */
-static int contar_estaciones(const MapaCompartido *mapa)
-{
-    int total = 0;
-    for (int r = 0; r < MAP_ROWS; r++)
-        for (int c = 0; c < MAP_COLS; c++)
-            if (mapa->celdas[r][c] == CHAR_ESTACION)
-                total++;
-    return total;
-}
 
 /* ── Guardado del estado lógico en disco ──────────────────── */
 static void guardar_estado(const MapaCompartido *mapa)
@@ -326,7 +316,7 @@ void servidor_ejecutar_loop(ServidorEstado *srv)
     bool juego_iniciado = false;
 
     while (keep_running) {
-        int estaciones_vivas = contar_estaciones(srv->mapa);
+        int estaciones_vivas = srv->mapa->estaciones_activas;
 
         if (estaciones_vivas > 0) {
             juego_iniciado = true;

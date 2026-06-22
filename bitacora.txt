@@ -119,3 +119,6 @@
 [2026-06-22 01:04:36] Estacion (42,19) | Nave PID 187921 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40, Ingresos: 200 Cr | Resultado: EXITO
 [2026-06-22 01:04:37] Estacion (42,19) | Nave PID 187921 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40, Ingresos: 200 Cr | Resultado: EXITO
 [2026-06-22 01:04:37] Estacion (42,19) | Nave PID 187921 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 9, Ingresos: 45 Cr | Resultado: EXITO
+[2026-06-22 06:02:35] Estacion (24,22) | Nave PID 275502 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 50, Pago: 500 Cr | Resultado: EXITO
+[2026-06-22 06:02:37] Estacion (24,22) | Nave PID 275502 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40, Ingresos: 200 Cr | Resultado: EXITO
+[2026-06-22 06:02:38] Estacion (24,22) | Nave PID 275502 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 24, Ingresos: 120 Cr | Resultado: EXITO

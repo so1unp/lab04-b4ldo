@@ -461,6 +461,7 @@ static void limpiar_recursos_ipc(void)
     if (g.mapa && g.y >= 0 && g.y < MAP_ROWS && g.x >= 0 && g.x < MAP_COLS) {
         if (g.mapa->celdas[g.y][g.x] == CHAR_ESTACION) {
             liberar_posicion(g.mapa, g.x, g.y);
+            __sync_fetch_and_sub(&g.mapa->estaciones_activas, 1);
         }
     }
 
@@ -495,22 +496,19 @@ static void handle_signal(int sig)
 /* ─── Búsqueda y adquisición de posición 'E' en el mapa ─────────── */
 static bool adquirir_estacion_libre(void)
 {
-    // 1. Contar estaciones activas en el mapa compartido
-    int estaciones_activas = 0;
-    for (int r = 0; r < MAP_ROWS; r++) {
-        for (int c = 0; c < MAP_COLS; c++) {
-            if (g.mapa->celdas[r][c] == CHAR_ESTACION) {
-                estaciones_activas++;
-            }
+    /* 1. Validar y aumentar el contador de estaciones activas de forma atómica (Lock-free) */
+    while (1) {
+        int current = g.mapa->estaciones_activas;
+        if (current >= 3) {
+            fprintf(stderr, "[ESTACION] Error: Limite maximo de estaciones activas (3) alcanzado en el mapa.\n");
+            return false;
+        }
+        if (__sync_bool_compare_and_swap(&g.mapa->estaciones_activas, current, current + 1)) {
+            break;
         }
     }
 
-    if (estaciones_activas >= 3) {
-        fprintf(stderr, "[ESTACION] Error: Limite maximo de estaciones activas (3) alcanzado en el mapa.\n");
-        return false;
-    }
-
-    // 2. Intentar buscar una celda vacia aleatoria
+    /* 2. Intentar buscar una celda vacia aleatoria */
     srand((unsigned int)(time(NULL) ^ (time_t)getpid()));
     bool exito = false;
     int intentos = 0;
@@ -526,10 +524,11 @@ static bool adquirir_estacion_libre(void)
 
     if (!exito) {
         fprintf(stderr, "[ESTACION] Error: No se pudo encontrar y adquirir una celda vacia para posicionar la estacion.\n");
+        __sync_fetch_and_sub(&g.mapa->estaciones_activas, 1);
         return false;
     }
 
-    // 3. Crear cola de mensajes exclusiva para esta posicion
+    /* 3. Crear cola de mensajes exclusiva para esta posicion */
     char mq_test[64];
     snprintf(mq_test, sizeof(mq_test), "/estacion_mq_%d_%d", c, r);
 
@@ -543,6 +542,7 @@ static bool adquirir_estacion_libre(void)
     if (fd == (mqd_t)-1) {
         perror("[ESTACION] mq_open para cola de la estacion fallo");
         liberar_posicion(g.mapa, c, r);
+        __sync_fetch_and_sub(&g.mapa->estaciones_activas, 1);
         return false;
     }
 

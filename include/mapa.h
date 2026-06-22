@@ -83,6 +83,7 @@ typedef struct MapaCompartido {
     TarifasComerciales tarifas;
     bool         servidor_activo;
     bool         game_over_global;
+    int          estaciones_activas;
 } MapaCompartido;
 
 /* ── Prototipos ─────────────────────────────────────────────────────────── */

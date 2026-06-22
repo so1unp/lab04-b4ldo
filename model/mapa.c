@@ -206,6 +206,7 @@ void mapa_limpiar(MapaCompartido *mapa)
     }
     mapa->servidor_activo = true;
     mapa->game_over_global = false;
+    mapa->estaciones_activas = 0;
 }
 
 /*

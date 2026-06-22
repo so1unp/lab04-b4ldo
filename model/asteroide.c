@@ -10,24 +10,35 @@ int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS])
         return -1;
     }
 
-    bool tiene_minerales = false;
+    /* Inicializar extraido a 0 */
+    for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+        extraido[m] = 0;
+    }
+
+    /* Identificar qué recursos están disponibles */
+    int disponibles[CANTIDAD_RECURSOS];
+    int count = 0;
     for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
         if (ast->minerales[m] > 0) {
-            tiene_minerales = true;
-            // Extraer máximo 20 unidades
-            int cant = ast->minerales[m] >= 20 ? 20 : ast->minerales[m];
-            ast->minerales[m] -= cant;
-            extraido[m] = cant;
-        } else {
-            extraido[m] = 0;
+            disponibles[count++] = m;
         }
     }
 
-    if (!tiene_minerales) {
-        return -1; // Ya estaba vacío
+    if (count == 0) {
+        return -1; /* Ya estaba vacío */
     }
 
-    // Verificar si quedó vacío después de la extracción
+    /* Seleccionar aleatoriamente uno de los recursos disponibles */
+    int idx_recurso = disponibles[rand() % count];
+
+    /* Extraer una cantidad aleatoria (entre 10 y 25 unidades) */
+    int cant_max = 10 + (rand() % 16);
+    int cant = ast->minerales[idx_recurso] >= cant_max ? cant_max : ast->minerales[idx_recurso];
+    
+    ast->minerales[idx_recurso] -= cant;
+    extraido[idx_recurso] = cant;
+
+    /* Verificar si el asteroide quedó completamente vacío */
     bool vacio = true;
     for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
         if (ast->minerales[m] > 0) {
@@ -38,10 +49,10 @@ int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS])
 
     if (vacio) {
         ast->activo = false;
-        return 0; // Se agotó por completo
+        return 0; /* Se agotó por completo */
     }
 
-    return 1; // Aún le quedan minerales
+    return 1; /* Aún le quedan minerales */
 }
 
 static long obtener_tiempo_ms(void) {
