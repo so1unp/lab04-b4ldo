@@ -36,6 +36,7 @@
 
 #include "../include/mapa.h"
 #include "../include/estacion.h"
+#include "../include/configuracion.h"
 #include "../tools/movement.h"
 
 /* ─── Parámetros de juego de la Estación ────────────────────────── */
@@ -44,17 +45,6 @@
 #define FUEL_DECREMENTO_ESTACION     2
 #define FUEL_INTERVALO_MS_ESTACION 1500
 #define CREDITOS_INICIALES_ESTACION 10000
-
-typedef struct {
-    int estaciones;
-    int asteroides;
-    int precio_deuterio;
-    int precio_mutexio;
-    int precio_semaforita;
-    int precio_kernelio;
-    int precio_combustible;
-    int precio_oxigeno;
-} Configuracion;
 
 typedef struct {
     ESTACION          estacion;
@@ -102,54 +92,6 @@ static void dormir_ms(long ms)
 {
     struct timespec ts = { ms / 1000, (ms % 1000) * 1000000L };
     nanosleep(&ts, NULL);
-}
-
-/* ─── Cargar configuración  ───────────────── */
-static int cargar_configuracion(const char *filename, Configuracion *config)
-{
-    config->precio_deuterio = 10;
-    config->precio_mutexio = 20;
-    config->precio_semaforita = 30;
-    config->precio_kernelio = 40;
-    config->precio_combustible = 5;
-    config->precio_oxigeno = 5;
-
-    FILE *fp = fopen(filename, "r");
-    if (fp == NULL) {
-        char path[128];
-        snprintf(path, sizeof(path), "../%s", filename);
-        fp = fopen(path, "r");
-    }
-    if (fp == NULL) {
-        return -1;
-    }
-
-    char linea[128];
-    while (fgets(linea, sizeof(linea), fp)) {
-        if (linea[0] == '#' || linea[0] == '\n' || linea[0] == '\r') {
-            continue;
-        }
-
-        char clave[64];
-        int valor;
-        if (sscanf(linea, "%63[^=]=%d", clave, &valor) == 2) {
-            if (strcmp(clave, "precio_deuterio") == 0) {
-                config->precio_deuterio = valor;
-            } else if (strcmp(clave, "precio_mutexio") == 0) {
-                config->precio_mutexio = valor;
-            } else if (strcmp(clave, "precio_semaforita") == 0) {
-                config->precio_semaforita = valor;
-            } else if (strcmp(clave, "precio_kernelio") == 0) {
-                config->precio_kernelio = valor;
-            } else if (strcmp(clave, "precio_combustible") == 0) {
-                config->precio_combustible = valor;
-            } else if (strcmp(clave, "precio_oxigeno") == 0) {
-                config->precio_oxigeno = valor;
-            }
-        }
-    }
-    fclose(fp);
-    return 0;
 }
 
 /* ─── Bitácora de Eventos (Atómica mediante O_APPEND y lock) ────── */

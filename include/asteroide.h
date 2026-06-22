@@ -20,6 +20,19 @@ typedef struct {
     long ultimo_movimiento_ms;
 } ASTEROIDE;
 
+#include <signal.h>
+
+struct MapaCompartido;
+
+typedef struct {
+    struct MapaCompartido *mapa;
+    int max_asteroides;
+    volatile sig_atomic_t *keep_running;
+} AsteroideThreadArgs;
+
 int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS]);
+void asteroide_spawn(struct MapaCompartido *mapa, int ast_idx);
+void asteroide_generar_entorno(struct MapaCompartido *mapa, int cant_asteroides);
+void* asteroide_hilo_movimiento(void* arg);
 
 #endif

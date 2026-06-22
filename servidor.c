@@ -3,19 +3,41 @@
  *
  * Responsabilidades:
  *   1. Crear y gestionar la memoria compartida POSIX que contiene el mapa.
- *   2. Poblar el mapa inicial con asteroides (las estaciones se ubican solas
- *      cuando sus propios procesos arrrancan).
+ *   2. Poblar el mapa inicial con asteroides llamando al módulo asteroide.
  *   3. Publicar las tarifas comerciales en la SHM para que todos los clientes
  *      las lean sin comunicación adicional.
  *   4. Detectar el Game Over global (todas las estaciones destruidas).
- *   5. Al cerrarse (Ctrl+C o Game Over), guardar el estado en disco y
- *      señalizar a todos los clientes poniendo servidor_activo = false en la SHM.
+ *   5. Guardar el estado lógico persistente al cerrarse y notificar a los clientes.
  *
- * Concurrencia:
- *   - El servidor NO es multihilo; sólo el hilo principal corre el loop.
- *   - Los semáforos POSIX de cada celda del mapa son inicializados aquí con
- *     PTHREAD_PROCESS_SHARED para que los clientes puedan usarlos.
- *   - Los mutexes de las naves (para el loot) también son PROCESS_SHARED.
+ * DOCUMENTACIÓN DE CONCURRENCIA:
+ * 
+ *   A. Escritores y Lectores de Flags de Control:
+ *      - `servidor_activo` (en MapaCompartido):
+ *        * Escritor: Únicamente el SERVIDOR (lo activa a true en inicialización,
+ *          y lo apaga a false en el shutdown).
+ *        * Lectores: Todos los procesos CLIENTE (naves y estaciones). Pollan este
+ *          flag para enterarse si el servidor cayó y salir limpiamente.
+ *      - `game_over_global` (en MapaCompartido):
+ *        * Escritor: Únicamente el SERVIDOR (bucle principal). Se pone en true
+ *          cuando se detecta que no quedan estaciones vivas en el mapa.
+ *        * Lectores: Las naves espaciales, que al verlo abortan su ejecución.
+ * 
+ *   B. Recursos Process-Shared (Memoria Compartida):
+ *      - `semaforos` (en MapaCompartido):
+ *        * Grilla de semáforos anónimos POSIX (sem_t) compartidos entre procesos.
+ *        * Sincronización: Protegen la exclusión mutua de posición física en la 
+ *          celda [fila][columna]. Cada celda es adquirida por naves, asteroides 
+ *          o estaciones usando `sem_wait`/`sem_trywait` y liberada por `sem_post`.
+ *      - `mutex` en `RegistroNave` (en MapaCompartido):
+ *        * Mutexes de tipo PTHREAD_PROCESS_SHARED.
+ *        * Sincronización: Protege los recursos y la integridad de la nave (créditos,
+ *          combustible, oxígeno, inventario) durante el proceso de comercio o saqueo (loot).
+ *      - `mutex` en `ASTEROIDE` (en MapaCompartido):
+ *        * Mutexes de tipo PTHREAD_PROCESS_SHARED.
+ *        * Sincronización: Evita condiciones de carrera entre la simulación de
+ *          movimiento del asteroide y la minería concurrente por parte de naves.
+ *          El servidor usa `pthread_mutex_trylock` para moverlo; si falla (porque
+ *          una nave lo está minando), el asteroide se mantiene estático (anclaje magnético).
  * ============================================================================= */
 
 #define _POSIX_C_SOURCE 200809L
@@ -35,19 +57,7 @@
 #include <pthread.h>
 
 #include "include/mapa.h"
-#include "tools/movement.h"
-
-/* ── Configuración inicial leída de config.txt ───────────────────────────── */
-typedef struct {
-    int estaciones;       /* Nro máximo de estaciones (informativo, max 3)   */
-    int asteroides;       /* Cantidad de asteroides a generar al inicio       */
-    int precio_deuterio;
-    int precio_mutexio;
-    int precio_semaforita;
-    int precio_kernelio;
-    int precio_combustible;
-    int precio_oxigeno;
-} Configuracion;
+#include "include/configuracion.h"
 
 /* ── Control de señales ─────────────────────────────────────────────────── */
 /* Usamos sig_atomic_t para que la escritura sea atómica desde el handler.  */
@@ -59,80 +69,77 @@ static void handle_signal(int sig)
     keep_running = 0;
 }
 
-/* ── Carga de configuración ─────────────────────────────────────────────── */
-/*
- * Carga parámetros desde un archivo de texto con formato "clave=valor".
- * Líneas que empiezan con '#' o están vacías son ignoradas.
- * Si el archivo no existe, se usan los valores por defecto ya asignados.
- */
-static int cargar_configuracion(const char *filename, Configuracion *config)
-{
-    /* Valores por defecto */
-    config->estaciones      = 3;
-    config->asteroides      = 5;
-    config->precio_deuterio   = 10;
-    config->precio_mutexio    = 20;
-    config->precio_semaforita = 30;
-    config->precio_kernelio   = 40;
-    config->precio_combustible = 5;
-    config->precio_oxigeno     = 5;
+/* ── Estructuras para Guardado de Estado Lógico (Compacto) ───────── */
+typedef struct {
+    int id;
+    int pos_x;
+    int pos_y;
+    bool es_movil;
+    int minerales[CANTIDAD_RECURSOS];
+} AsteroidePersistente;
 
-    FILE *fp = fopen(filename, "r");
-    if (fp == NULL) {
-        perror("Error al abrir config.txt");
+typedef struct {
+    int  pid;
+    int  creditos;
+    int  pos_x;
+    int  pos_y;
+    int  inventario[CANTIDAD_RECURSOS];
+    int  combustible;
+    int  oxigeno;
+    bool incapacitada;
+} NavePersistente;
+
+/* ── Estructura de Estado del Servidor ────────────────────── */
+typedef struct {
+    Configuracion config;
+    MapaCompartido *mapa;
+    pthread_t t_asteroides;
+    bool asteroide_thread_created;
+    AsteroideThreadArgs ast_args;
+} ServidorEstado;
+
+/* ── Inicialización de mutexes de naves ───────────────────── */
+static int inicializar_mutexes_naves(MapaCompartido *mapa)
+{
+    pthread_mutexattr_t attr;
+    int ret;
+
+    ret = pthread_mutexattr_init(&attr);
+    if (ret != 0) {
+        fprintf(stderr, "[SERVIDOR] Error inicializando atributos de mutex: %s\n", strerror(ret));
         return -1;
     }
 
-    char linea[128];
-    while (fgets(linea, sizeof(linea), fp)) {
-        if (linea[0] == '#' || linea[0] == '\n' || linea[0] == '\r')
-            continue;
-
-        char clave[64];
-        int  valor;
-        if (sscanf(linea, "%63[^=]=%d", clave, &valor) != 2)
-            continue;
-
-        if      (strcmp(clave, "estaciones")       == 0) config->estaciones       = valor;
-        else if (strcmp(clave, "asteroides")        == 0) config->asteroides        = valor;
-        else if (strcmp(clave, "precio_deuterio")   == 0) config->precio_deuterio   = valor;
-        else if (strcmp(clave, "precio_mutexio")    == 0) config->precio_mutexio    = valor;
-        else if (strcmp(clave, "precio_semaforita") == 0) config->precio_semaforita = valor;
-        else if (strcmp(clave, "precio_kernelio")   == 0) config->precio_kernelio   = valor;
-        else if (strcmp(clave, "precio_combustible")== 0) config->precio_combustible= valor;
-        else if (strcmp(clave, "precio_oxigeno")    == 0) config->precio_oxigeno    = valor;
+    ret = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    if (ret != 0) {
+        fprintf(stderr, "[SERVIDOR] Error estableciendo pshared en mutex: %s\n", strerror(ret));
+        pthread_mutexattr_destroy(&attr);
+        return -1;
     }
-    fclose(fp);
 
-    /* El README establece un máximo de 3 estaciones. */
-    if (config->estaciones > 3) config->estaciones = 3;
-    if (config->estaciones < 1) config->estaciones = 1;
+    for (int i = 0; i < MAX_NAVES; i++) {
+        ret = pthread_mutex_init(&mapa->naves[i].mutex, &attr);
+        if (ret != 0) {
+            fprintf(stderr, "[SERVIDOR] Error inicializando mutex de nave %d: %s\n", i, strerror(ret));
+            /* Revertir mutexes inicializados previamente */
+            for (int j = 0; j < i; j++) {
+                pthread_mutex_destroy(&mapa->naves[j].mutex);
+            }
+            pthread_mutexattr_destroy(&attr);
+            return -1;
+        }
+    }
+
+    ret = pthread_mutexattr_destroy(&attr);
+    if (ret != 0) {
+        fprintf(stderr, "[SERVIDOR] Error destruyendo atributos de mutex: %s\n", strerror(ret));
+        return -1;
+    }
 
     return 0;
 }
 
-/* ── Inicialización de mutexes de naves ─────────────────────────────────── */
-/*
- * Los mutexes de RegistroNave viven en la SHM y deben ser accesibles por
- * múltiples procesos (PTHREAD_PROCESS_SHARED).  Los inicializa el servidor
- * porque es quien crea la SHM primero.
- */
-static void inicializar_mutexes_naves(MapaCompartido *mapa)
-{
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-    for (int i = 0; i < MAX_NAVES; i++) {
-        pthread_mutex_init(&mapa->naves[i].mutex, &attr);
-    }
-    pthread_mutexattr_destroy(&attr);
-}
-
 /* ── Publicación de tarifas en la SHM ──────────────────────────────────── */
-/*
- * Las tarifas se almacenan en la SHM para evitar que cada cliente deba
- * leer su propia copia del config.txt.  Así se garantiza consistencia.
- */
 static void publicar_tarifas(MapaCompartido *mapa, const Configuracion *config)
 {
     mapa->tarifas.precio_deuterio    = config->precio_deuterio;
@@ -141,164 +148,6 @@ static void publicar_tarifas(MapaCompartido *mapa, const Configuracion *config)
     mapa->tarifas.precio_kernelio    = config->precio_kernelio;
     mapa->tarifas.precio_combustible = config->precio_combustible;
     mapa->tarifas.precio_oxigeno     = config->precio_oxigeno;
-}
-
-static long obtener_tiempo_ms(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
-/* ── Generación de asteroides ───────────────────────────────────────────── */
-static void spawn_asteroide(MapaCompartido *mapa, int ast_idx)
-{
-    ASTEROIDE *ast = &mapa->asteroides[ast_idx];
-    ast->es_movil = (rand() % 100 < 50); // 50% de probabilidad
-
-    int x = 0, y = 0;
-    bool exito = false;
-    int intentos = 0;
-
-    if (ast->es_movil) {
-        int x1, y1, x2, y2;
-        if (rand() % 2 == 0) { // Borde vertical
-            x1 = (rand() % 2 == 0) ? 0 : MAP_COLS - 1;
-            y1 = rand() % MAP_ROWS;
-            x2 = (x1 == 0) ? MAP_COLS - 1 : 0;
-            y2 = rand() % MAP_ROWS;
-        } else { // Borde horizontal
-            x1 = rand() % MAP_COLS;
-            y1 = (rand() % 2 == 0) ? 0 : MAP_ROWS - 1;
-            x2 = rand() % MAP_COLS;
-            y2 = (y1 == 0) ? MAP_ROWS - 1 : 0;
-        }
-        
-        generar_trayectoria_bresenham(x1, y1, x2, y2, &ast->trayectoria);
-        
-        // Buscar la primera celda libre en la trayectoria
-        for (int i = 0; i < ast->trayectoria.cantidad; i++) {
-            if (adquirir_posicion_inicial(mapa, ast->trayectoria.puntos[i].x, ast->trayectoria.puntos[i].y, CHAR_ASTEROIDE, false)) {
-                ast->trayectoria.indice_actual = i;
-                x = ast->trayectoria.puntos[i].x;
-                y = ast->trayectoria.puntos[i].y;
-                exito = true;
-                break;
-            }
-        }
-        ast->velocidad_ms = 500 + (rand() % 1500); // 500ms a 2000ms
-        ast->ultimo_movimiento_ms = obtener_tiempo_ms();
-    } else {
-        while (!exito && intentos < 10000) {
-            x = rand() % MAP_COLS;
-            y = rand() % MAP_ROWS;
-            exito = adquirir_posicion_inicial(mapa, x, y, CHAR_ASTEROIDE, false);
-            intentos++;
-        }
-    }
-
-    if (!exito) {
-        ast->activo = false;
-        return;
-    }
-
-    ast->pos_x = x;
-    ast->pos_y = y;
-    ast->base.id = ast_idx;
-    ast->base.tipo = TIPO_ASTEROIDE;
-    ast->base.x = (float)x;
-    ast->base.y = (float)y;
-    ast->base.velocidad = 0.0f;
-
-    bool tiene_mineral = false;
-    for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
-        if (rand() % 100 < 75) {
-            ast->minerales[m] = 100 + (rand() % 401);
-            tiene_mineral = true;
-        } else {
-            ast->minerales[m] = 0;
-        }
-    }
-    if (!tiene_mineral) ast->minerales[MINERAL_DEUTERIO] = 200;
-
-    ast->activo = true;
-}
-
-static void generar_entorno(MapaCompartido *mapa, const Configuracion *config)
-{
-    srand((unsigned int)time(NULL));
-
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-
-    for (int i = 0; i < MAX_ASTEROIDES; i++) {
-        pthread_mutex_init(&mapa->asteroides[i].mutex, &attr);
-        mapa->asteroides[i].activo = false;
-    }
-    pthread_mutexattr_destroy(&attr);
-
-    for (int i = 0; i < config->asteroides; i++) {
-        spawn_asteroide(mapa, i);
-    }
-}
-
-static MapaCompartido *mapa_global = NULL;
-static int max_asteroides_config = 0;
-
-static void* hilo_movimiento_asteroides(void* arg) {
-    (void)arg;
-    while (keep_running) {
-        long ahora = obtener_tiempo_ms();
-        int activos = 0;
-
-        for (int i = 0; i < MAX_ASTEROIDES; i++) {
-            ASTEROIDE *ast = &mapa_global->asteroides[i];
-            if (ast->activo) {
-                activos++;
-                if (ast->es_movil) {
-                    if (ahora - ast->ultimo_movimiento_ms >= ast->velocidad_ms) {
-                        // Anclaje Magnético: trylock
-                        if (pthread_mutex_trylock(&ast->mutex) == 0) {
-                            int next_idx = ast->trayectoria.indice_actual + 1;
-                            if (next_idx < ast->trayectoria.cantidad) {
-                                int nx = ast->trayectoria.puntos[next_idx].x;
-                                int ny = ast->trayectoria.puntos[next_idx].y;
-                                
-                                if (intentar_mover_objeto(mapa_global, &ast->pos_x, &ast->pos_y, nx, ny, CHAR_ASTEROIDE, false)) {
-                                    ast->trayectoria.indice_actual = next_idx;
-                                    ast->base.x = (float)ast->pos_x;
-                                    ast->base.y = (float)ast->pos_y;
-                                }
-                            } else {
-                                // Final de trayectoria
-                                liberar_posicion(mapa_global, ast->pos_x, ast->pos_y);
-                                ast->activo = false;
-                                activos--;
-                            }
-                            ast->ultimo_movimiento_ms = ahora;
-                            pthread_mutex_unlock(&ast->mutex);
-                        } else {
-                            // Está siendo minado, anclado temporalmente
-                            ast->ultimo_movimiento_ms = ahora;
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (activos < max_asteroides_config) {
-            for (int i = 0; i < MAX_ASTEROIDES; i++) {
-                if (!mapa_global->asteroides[i].activo) {
-                    spawn_asteroide(mapa_global, i);
-                    break;
-                }
-            }
-        }
-
-        struct timespec req_ast = {0, 50000000}; // 50ms
-        nanosleep(&req_ast, NULL);
-    }
-    return NULL;
 }
 
 /* ── Contar estaciones activas en el mapa ───────────────────────────────── */
@@ -312,22 +161,98 @@ static int contar_estaciones(const MapaCompartido *mapa)
     return total;
 }
 
-/* ── Guardado del estado en disco ───────────────────────────────────────── */
-/*
- * Vuelca la estructura MapaCompartido completa en un archivo binario.
- * Esto permite recuperar posiciones, minerales y créditos si el servidor
- * se reinicia (siempre que los semáforos/mutexes sean reinicializados).
- */
+/* ── Guardado del estado lógico en disco ──────────────────── */
 static void guardar_estado(const MapaCompartido *mapa)
 {
     FILE *fp = fopen("estado_servidor.dat", "wb");
-    if (fp) {
-        fwrite(mapa, sizeof(MapaCompartido), 1, fp);
-        fclose(fp);
-        printf("[SERVIDOR] Estado guardado en estado_servidor.dat.\n");
-    } else {
-        perror("[SERVIDOR] Error al guardar el estado");
+    if (!fp) {
+        perror("[SERVIDOR] Error al abrir estado_servidor.dat para guardar");
+        return;
     }
+
+    /* 1. Escribir las celdas del mapa */
+    if (fwrite(mapa->celdas, sizeof(mapa->celdas), 1, fp) != 1) {
+        perror("[SERVIDOR] Error escribiendo celdas del mapa");
+        fclose(fp);
+        return;
+    }
+
+    /* 2. Escribir tarifas */
+    if (fwrite(&mapa->tarifas, sizeof(TarifasComerciales), 1, fp) != 1) {
+        perror("[SERVIDOR] Error escribiendo tarifas");
+        fclose(fp);
+        return;
+    }
+
+    /* 3. Contar y escribir asteroides activos */
+    int cant_asteroides_activos = 0;
+    for (int i = 0; i < MAX_ASTEROIDES; i++) {
+        if (mapa->asteroides[i].activo) {
+            cant_asteroides_activos++;
+        }
+    }
+    if (fwrite(&cant_asteroides_activos, sizeof(int), 1, fp) != 1) {
+        perror("[SERVIDOR] Error escribiendo cantidad de asteroides");
+        fclose(fp);
+        return;
+    }
+
+    /* Escribir los registros de asteroides activos */
+    for (int i = 0; i < MAX_ASTEROIDES; i++) {
+        const ASTEROIDE *src = &mapa->asteroides[i];
+        if (src->activo) {
+            AsteroidePersistente record;
+            record.id = src->base.id;
+            record.pos_x = src->pos_x;
+            record.pos_y = src->pos_y;
+            record.es_movil = src->es_movil;
+            memcpy(record.minerales, src->minerales, sizeof(src->minerales));
+
+            if (fwrite(&record, sizeof(AsteroidePersistente), 1, fp) != 1) {
+                perror("[SERVIDOR] Error escribiendo registro de asteroide");
+                fclose(fp);
+                return;
+            }
+        }
+    }
+
+    /* 4. Contar y escribir naves activas */
+    int cant_naves_activas = 0;
+    for (int i = 0; i < MAX_NAVES; i++) {
+        if (mapa->naves[i].activo) {
+            cant_naves_activas++;
+        }
+    }
+    if (fwrite(&cant_naves_activas, sizeof(int), 1, fp) != 1) {
+        perror("[SERVIDOR] Error escribiendo cantidad de naves");
+        fclose(fp);
+        return;
+    }
+
+    /* Escribir los registros de naves activas */
+    for (int i = 0; i < MAX_NAVES; i++) {
+        const RegistroNave *src = &mapa->naves[i];
+        if (src->activo) {
+            NavePersistente record;
+            record.pid = src->pid;
+            record.creditos = src->creditos;
+            record.pos_x = src->pos_x;
+            record.pos_y = src->pos_y;
+            record.combustible = src->combustible;
+            record.oxigeno = src->oxigeno;
+            record.incapacitada = src->incapacitada;
+            memcpy(record.inventario, src->inventario, sizeof(src->inventario));
+
+            if (fwrite(&record, sizeof(NavePersistente), 1, fp) != 1) {
+                perror("[SERVIDOR] Error escribiendo registro de nave");
+                fclose(fp);
+                return;
+            }
+        }
+    }
+
+    fclose(fp);
+    printf("[SERVIDOR] Estado lógico guardado en estado_servidor.dat.\n");
 }
 
 /* ── Renderizado del mapa en la terminal del servidor ───────────────────── */
@@ -348,10 +273,117 @@ static void render_servidor(const MapaCompartido *mapa, const Configuracion *cfg
     printf("Ctrl+C para apagar el servidor limpiamente.\n");
 }
 
-/* ── main ───────────────────────────────────────────────────────────────── */
+/* ── Métodos del Ciclo de Vida del Servidor ───────────────── */
+
+int servidor_inicializar(ServidorEstado *srv)
+{
+    int ret;
+    memset(srv, 0, sizeof(ServidorEstado));
+
+    /* 1. Cargar configuración */
+    if (cargar_configuracion("config.txt", &srv->config) != 0) {
+        fprintf(stderr, "[SERVIDOR] Usando configuración por defecto.\n");
+    }
+
+    /* 2. Crear la memoria compartida POSIX e inicializar semáforos de celdas */
+    srv->mapa = mapa_crear_servidor();
+    if (srv->mapa == NULL) {
+        fprintf(stderr, "[SERVIDOR] Error crítico: no se pudo crear la SHM.\n");
+        return -1;
+    }
+
+    /* 3. Inicializar mutexes de naves (PROCESS_SHARED) para el loot */
+    if (inicializar_mutexes_naves(srv->mapa) != 0) {
+        fprintf(stderr, "[SERVIDOR] Error crítico: fallo inicializando mutexes de naves.\n");
+        return -1;
+    }
+
+    /* 4. Publicar tarifas en la SHM */
+    publicar_tarifas(srv->mapa, &srv->config);
+
+    /* 5. Poblar el mapa con asteroides */
+    asteroide_generar_entorno(srv->mapa, srv->config.asteroides);
+    printf("[SERVIDOR] Mapa inicializado. Lanzando hilo de asteroides...\n");
+
+    srv->ast_args.mapa = srv->mapa;
+    srv->ast_args.max_asteroides = srv->config.asteroides;
+    srv->ast_args.keep_running = &keep_running;
+
+    /* 6. Lanzar hilo de simulación de asteroides */
+    ret = pthread_create(&srv->t_asteroides, NULL, asteroide_hilo_movimiento, &srv->ast_args);
+    if (ret != 0) {
+        fprintf(stderr, "[SERVIDOR] Error crítico al crear el hilo de asteroides: %s\n", strerror(ret));
+        return -1;
+    }
+    srv->asteroide_thread_created = true;
+
+    return 0;
+}
+
+void servidor_ejecutar_loop(ServidorEstado *srv)
+{
+    struct timespec req = {1, 0};
+    bool juego_iniciado = false;
+
+    while (keep_running) {
+        int estaciones_vivas = contar_estaciones(srv->mapa);
+
+        if (estaciones_vivas > 0) {
+            juego_iniciado = true;
+        }
+
+        if (juego_iniciado && estaciones_vivas == 0) {
+            printf("\033[H\033[J");
+            printf("\n===================================================================\n");
+            printf("[SERVIDOR] !TODAS LAS ESTACIONES DESTRUIDAS! — GAME OVER GLOBAL\n");
+            printf("===================================================================\n");
+            srv->mapa->game_over_global = true;
+            keep_running = 0;
+            continue;
+        }
+
+        render_servidor(srv->mapa, &srv->config, estaciones_vivas);
+        nanosleep(&req, NULL);
+    }
+}
+
+void servidor_apagar(ServidorEstado *srv)
+{
+    printf("\n[SERVIDOR] %s\n",
+           (srv->mapa && srv->mapa->game_over_global)
+               ? "Apagando por GAME OVER global."
+               : "Apagando por señal del operador.");
+
+    /* Guardar estado lógico en disco antes de liberar la SHM */
+    if (srv->mapa) {
+        guardar_estado(srv->mapa);
+    }
+
+    /* Esperar que termine el hilo de asteroides */
+    if (srv->asteroide_thread_created) {
+        int ret = pthread_join(srv->t_asteroides, NULL);
+        if (ret != 0) {
+            fprintf(stderr, "[SERVIDOR] Error en pthread_join de asteroides: %s\n", strerror(ret));
+        }
+    }
+
+    if (srv->mapa) {
+        /* Notificar a los clientes poniendo el flag en false. */
+        srv->mapa->servidor_activo = false;
+        printf("[SERVIDOR] Flag servidor_activo desactivado. Esperando clientes...\n");
+        sleep(2);
+
+        /* Destruir la SHM y los semáforos internos */
+        mapa_destruir_servidor(srv->mapa);
+        printf("[SERVIDOR] SHM destruida. Salida limpia.\n");
+    }
+}
+
+/* ── main ─────────────────────────────────────────────────── */
 int main(int argc, char *argv[])
 {
     (void)argc; (void)argv;
+    int exit_status = EXIT_SUCCESS;
 
     /* 1. Registrar manejadores de señal para salida limpia */
     struct sigaction sa;
@@ -363,82 +395,22 @@ int main(int argc, char *argv[])
 
     printf("[SERVIDOR] Iniciando...\n");
 
-    /* 2. Cargar configuración */
-    Configuracion config;
-    if (cargar_configuracion("config.txt", &config) != 0)
-        fprintf(stderr, "[SERVIDOR] Usando configuración por defecto.\n");
+    ServidorEstado srv;
+    memset(&srv, 0, sizeof(ServidorEstado));
 
-    /* 3. Crear la memoria compartida POSIX e inicializar semáforos de celdas */
-    MapaCompartido *mapa = mapa_crear_servidor();
-    if (mapa == NULL) {
-        fprintf(stderr, "[SERVIDOR] Error crítico: no se pudo crear la SHM.\n");
-        exit(EXIT_FAILURE);
+    /* Inicializar el servidor */
+    if (servidor_inicializar(&srv) != 0) {
+        fprintf(stderr, "[SERVIDOR] Falló la inicialización del servidor.\n");
+        exit_status = EXIT_FAILURE;
+        goto cleanup;
     }
 
-    /* 4. Inicializar mutexes de naves (PROCESS_SHARED) para el loot */
-    inicializar_mutexes_naves(mapa);
+    /* Ejecutar el loop del juego */
+    servidor_ejecutar_loop(&srv);
 
-    /* 5. Publicar tarifas en la SHM */
-    publicar_tarifas(mapa, &config);
+cleanup:
+    /* Apagar de manera centralizada */
+    servidor_apagar(&srv);
 
-    /* 6. Poblar el mapa con asteroides */
-    generar_entorno(mapa, &config);
-    printf("[SERVIDOR] Mapa inicializado. Lanzando hilo de asteroides...\n");
-
-    mapa_global = mapa;
-    max_asteroides_config = config.asteroides;
-    pthread_t t_asteroides;
-    pthread_create(&t_asteroides, NULL, hilo_movimiento_asteroides, NULL);
-
-    /* 7. Loop principal: renderizar mapa y vigilar condición de Game Over.
-     *    El Game Over global ocurre cuando todas las estaciones desaparecen
-     *    (se quedan sin combustible y explotan), DESPUÉS de que al menos una
-     *    había estado activa (para no dispararlo al inicio, antes de que
-     *    los procesos estación arranquen).                                    */
-    struct timespec req = {1, 0};
-    bool juego_iniciado = false;
-
-    while (keep_running) {
-        int estaciones_vivas = contar_estaciones(mapa);
-
-        if (estaciones_vivas > 0) juego_iniciado = true;
-
-        if (juego_iniciado && estaciones_vivas == 0) {
-            printf("\033[H\033[J");
-            printf("\n===================================================================\n");
-            printf("[SERVIDOR] !TODAS LAS ESTACIONES DESTRUIDAS! — GAME OVER GLOBAL\n");
-            printf("===================================================================\n");
-            mapa->game_over_global = true;
-            keep_running = 0;
-            continue;
-        }
-
-        render_servidor(mapa, &config, estaciones_vivas);
-        nanosleep(&req, NULL);
-    }
-
-    /* 8. Cierre ordenado */
-    printf("\n[SERVIDOR] %s\n",
-           mapa->game_over_global
-               ? "Apagando por GAME OVER global."
-               : "Apagando por señal del operador.");
-
-    /* Guardar estado en disco antes de liberar la SHM */
-    guardar_estado(mapa);
-
-    /* Esperar que termine el hilo de asteroides */
-    pthread_join(t_asteroides, NULL);
-
-    /* Notificar a los clientes poniendo el flag en false.
-     * Los clientes pollan este flag y reaccionan al detectarlo.
-     * Esperamos 2 segundos para darles tiempo de terminar limpiamente. */
-    mapa->servidor_activo = false;
-    printf("[SERVIDOR] Flag servidor_activo desactivado. Esperando clientes...\n");
-    sleep(2);
-
-    /* Destruir la SHM y los semáforos internos */
-    mapa_destruir_servidor(mapa);
-    printf("[SERVIDOR] SHM destruida. Salida limpia.\n");
-
-    exit(EXIT_SUCCESS);
+    exit(exit_status);
 }

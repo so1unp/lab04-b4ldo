@@ -4,7 +4,7 @@ CFLAGS=-std=gnu99 -g -Wall -Wextra -Wshadow -Wconversion -Wunreachable-code -Iin
 LDFLAGS=-lrt -pthread -lm
 
 # Fuentes y objetos compartidos
-SRCS_SHARED=model/mapa.c model/asteroide.c tools/movement.c tools/barra.c
+SRCS_SHARED=model/mapa.c model/asteroide.c tools/movement.c tools/barra.c tools/configuracion.c
 
 .PHONY: all
 all: $(BIN)/servidor $(BIN)/nave $(BIN)/estacion
