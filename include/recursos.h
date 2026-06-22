@@ -11,4 +11,13 @@ typedef enum {
     CANTIDAD_RECURSOS
 } TipoRecurso;
 
+typedef struct {
+    int precio_deuterio;
+    int precio_mutexio;
+    int precio_semaforita;
+    int precio_kernelio;
+    int precio_combustible;
+    int precio_oxigeno;
+} TarifasComerciales;
+
 #endif

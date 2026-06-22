@@ -37,6 +37,7 @@
 #define BAR_IN    10
 
 EstadoNave      g;
+static sem_t   *g_sem_economia = SEM_FAILED;
 
 
 
@@ -52,6 +53,20 @@ static void dormir_ms(long ms)
 {
     struct timespec ts = { ms / 1000, (ms % 1000) * 1000000L };
     nanosleep(&ts, NULL);
+}
+
+static void lock_economia(void)
+{
+    if (g_sem_economia != SEM_FAILED) {
+        sem_wait(g_sem_economia);
+    }
+}
+
+static void unlock_economia(void)
+{
+    if (g_sem_economia != SEM_FAILED) {
+        sem_post(g_sem_economia);
+    }
 }
 
 static ASTEROIDE* buscar_asteroide_adyacente(int *out_x, int *out_y)
@@ -196,6 +211,17 @@ static bool realizar_transaccion_sincrona(MensajeEstacion *req, MensajeNave *res
     return true;
 }
 
+static void sincronizar_creditos_desde_shm(void)
+{
+    if (g.nave_slot_shm == -1) {
+        return;
+    }
+
+    lock_economia();
+    g.nave.creditos = g.mapa->naves[g.nave_slot_shm].creditos;
+    unlock_economia();
+}
+
 static void realizar_venta(void)
 {
     int total_creditos_ganados = 0;
@@ -215,7 +241,7 @@ static void realizar_venta(void)
         req.cantidad = cant_mut;
         MensajeNave resp;
         if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
-            total_creditos_ganados += cant_mut * 20;
+            total_creditos_ganados += cant_mut * g.mapa->tarifas.precio_mutexio;
             g.nave.inventario[MINERAL_MUTEXIO] = 0;
             vendido_algo = true;
         } else {
@@ -232,7 +258,7 @@ static void realizar_venta(void)
         req.cantidad = cant_sem;
         MensajeNave resp;
         if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
-            total_creditos_ganados += cant_sem * 30;
+            total_creditos_ganados += cant_sem * g.mapa->tarifas.precio_semaforita;
             g.nave.inventario[MINERAL_SEMAFORITA] = 0;
             vendido_algo = true;
         } else {
@@ -249,7 +275,7 @@ static void realizar_venta(void)
         req.cantidad = cant_ker;
         MensajeNave resp;
         if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
-            total_creditos_ganados += cant_ker * 40;
+            total_creditos_ganados += cant_ker * g.mapa->tarifas.precio_kernelio;
             g.nave.inventario[MINERAL_KERNELIO] = 0;
             vendido_algo = true;
         } else {
@@ -266,7 +292,7 @@ static void realizar_venta(void)
         req.cantidad = cant_deu;
         MensajeNave resp;
         if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
-            total_creditos_ganados += cant_deu * 10;
+            total_creditos_ganados += cant_deu * g.mapa->tarifas.precio_deuterio;
             g.nave.inventario[MINERAL_DEUTERIO] = 0;
             vendido_algo = true;
         } else {
@@ -275,10 +301,7 @@ static void realizar_venta(void)
     }
 
     if (vendido_algo) {
-        g.nave.creditos += total_creditos_ganados;
-        if (g.nave_slot_shm != -1) {
-            g.mapa->naves[g.nave_slot_shm].creditos = g.nave.creditos;
-        }
+        sincronizar_creditos_desde_shm();
 
         // Construir el mensaje de notificación
         char buffer[80] = "Vendidos:";
@@ -320,32 +343,91 @@ static void realizar_venta(void)
 
 static void realizar_compra_combustible(void)
 {
+    int actual = barra_get_valor(&g.nave.barra_combustible);
+    int faltante = FUEL_MAX - actual;
+    if (faltante <= 0) {
+        strncpy(g.hud_error, "Tanque de combustible lleno", sizeof(g.hud_error));
+        g.hud_error_recibido = time(NULL);
+        return;
+    }
+
+    int cantidad_solicitada = (faltante < 40) ? faltante : 40;
+    int costo = cantidad_solicitada * g.mapa->tarifas.precio_combustible;
+    
+    // Verificar solvencia
+    if (g.nave.creditos < costo) {
+        snprintf(g.hud_error, sizeof(g.hud_error), 
+                 "Créditos insuficientes. Necesitas %d, tienes %d", costo, g.nave.creditos);
+        g.hud_error_recibido = time(NULL);
+        return;
+    }
+
     MensajeEstacion req;
     req.pid_origen = getpid();
     req.tipo = REQ_COMPRAR_COMBUSTIBLE;
     req.recurso = MINERAL_DEUTERIO;
-    req.cantidad = 40;
+    req.cantidad = cantidad_solicitada;
 
     MensajeNave resp;
+    memset(&resp, 0, sizeof(resp));
     if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
         barra_modificar(&g.nave.barra_combustible, resp.cantidad);
+        sincronizar_creditos_desde_shm();
+        int costo_real = resp.cantidad * g.mapa->tarifas.precio_combustible;
+        snprintf(g.hud_error, sizeof(g.hud_error), "Combustible +%d. Costo: %d Cr", resp.cantidad, costo_real);
+        g.hud_error_recibido = time(NULL);
     } else {
-        strncpy(g.hud_error, resp.mensaje, sizeof(g.hud_error));
+        if (resp.mensaje[0] != '\0') {
+            strncpy(g.hud_error, resp.mensaje, sizeof(g.hud_error));
+        } else {
+            strncpy(g.hud_error, "Error de transaccion de combustible", sizeof(g.hud_error));
+        }
         g.hud_error_recibido = time(NULL);
     }
 }
 
 static void realizar_compra_oxigeno(void)
 {
+    int actual = barra_get_valor(&g.nave.barra_oxigeno);
+    int faltante = O2_MAX - actual;
+    if (faltante <= 0) {
+        strncpy(g.hud_error, "Tanque de oxigeno lleno", sizeof(g.hud_error));
+        g.hud_error_recibido = time(NULL);
+        return;
+    }
+
+    int cantidad_solicitada = (faltante < 40) ? faltante : 40;
+    int costo = cantidad_solicitada * g.mapa->tarifas.precio_oxigeno;
+    
+    // Verificar solvencia
+    if (g.nave.creditos < costo) {
+        snprintf(g.hud_error, sizeof(g.hud_error), 
+                 "Créditos insuficientes. Necesitas %d, tienes %d", costo, g.nave.creditos);
+        g.hud_error_recibido = time(NULL);
+        return;
+    }
+
     MensajeEstacion req;
     req.pid_origen = getpid();
     req.tipo = REQ_COMPRAR_OXIGENO;
     req.recurso = 0;
-    req.cantidad = 40;
+    req.cantidad = cantidad_solicitada;
 
     MensajeNave resp;
+    memset(&resp, 0, sizeof(resp));
     if (realizar_transaccion_sincrona(&req, &resp) && resp.exito) {
         barra_modificar(&g.nave.barra_oxigeno, resp.cantidad);
+        sincronizar_creditos_desde_shm();
+        int costo_real = resp.cantidad * g.mapa->tarifas.precio_oxigeno;
+        snprintf(g.hud_error, sizeof(g.hud_error), "Oxigeno +%d. Costo: %d Cr", resp.cantidad, costo_real);
+        g.hud_error_recibido = time(NULL);
+    } else {
+        if (resp.mensaje[0] != '\0') {
+            snprintf(g.hud_error, sizeof(g.hud_error), "Error: %s", resp.mensaje);
+        } else {
+            strncpy(g.hud_error, "Error de transaccion de oxigeno", sizeof(g.hud_error));
+        }
+        g.hud_error_recibido = time(NULL);
     }
 }
 
@@ -639,6 +721,7 @@ int main(int argc, char *argv[])
     g.mq_respuesta = (mqd_t)-1;
     g.mq_estacion = (mqd_t)-1;
     g.sem_hangar = SEM_FAILED;
+    g_sem_economia = SEM_FAILED;
 
     /* 1. Conectar al mapa del servidor */
     g.mapa = mapa_conectar_cliente();
@@ -647,7 +730,13 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    g_sem_economia = sem_open("/economia_sem", O_CREAT, 0660, 1);
+    if (g_sem_economia == SEM_FAILED) {
+        perror("sem_open economia nave falló");
+    }
+
     g.nave_slot_shm = -1;
+    lock_economia();
     for (int i = 0; i < MAX_NAVES; i++) {
         if (!g.mapa->naves[i].activo) {
             g.mapa->naves[i].pid = getpid();
@@ -657,6 +746,7 @@ int main(int argc, char *argv[])
             break;
         }
     }
+    unlock_economia();
 
     /* 2. Crear archivo indicador PID y cola de respuesta de la Nave */
     snprintf(g.pid_file, sizeof(g.pid_file), "bin/nave_%d.pid", getpid());
@@ -756,7 +846,12 @@ int main(int argc, char *argv[])
     pthread_cond_destroy(&g.cond_respuesta);
     pthread_mutex_destroy(&g.mx_estado);
     if (g.nave_slot_shm != -1) {
+        lock_economia();
         g.mapa->naves[g.nave_slot_shm].activo = false;
+        unlock_economia();
+    }
+    if (g_sem_economia != SEM_FAILED) {
+        sem_close(g_sem_economia);
     }
     mapa_desconectar(g.mapa);
 

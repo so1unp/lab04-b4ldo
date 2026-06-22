@@ -26,6 +26,7 @@
 #define FUEL_UMBRAL_ESTACION      200
 #define FUEL_DECREMENTO_ESTACION     2
 #define FUEL_INTERVALO_MS_ESTACION 1500
+#define CREDITOS_INICIALES_ESTACION 10000
 
 typedef struct {
     int estaciones;
@@ -47,12 +48,37 @@ typedef struct {
     char              pid_file[64];
     mqd_t             mq_fd;
     sem_t            *sem_hangar;
+    sem_t            *sem_economia;
     Configuracion     config;
     volatile sig_atomic_t activo;
     pthread_mutex_t   mx_estado;
 } EstadoEstacion;
 
 static EstadoEstacion g;
+
+static int buscar_slot_nave_por_pid(pid_t pid)
+{
+    for (int i = 0; i < MAX_NAVES; i++) {
+        if (g.mapa->naves[i].activo && g.mapa->naves[i].pid == (int)pid) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void lock_economia(void)
+{
+    if (g.sem_economia != SEM_FAILED) {
+        sem_wait(g.sem_economia);
+    }
+}
+
+static void unlock_economia(void)
+{
+    if (g.sem_economia != SEM_FAILED) {
+        sem_post(g.sem_economia);
+    }
+}
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 static void dormir_ms(long ms)
@@ -332,41 +358,123 @@ static void *hilo_transacciones(void *arg)
 
         if (msg->tipo == REQ_VENDER_MINERAL) {
             snprintf(op_str, sizeof(op_str), "VENTA MINERAL");
-            if (msg->recurso == MINERAL_DEUTERIO) {
-                barra_modificar(&g.estacion.barra_combustible, msg->cantidad);
-                resp.exito = true;
-                resp.cantidad = msg->cantidad;
-                snprintf(resp.mensaje, sizeof(resp.mensaje), "Deuterio vendido exitosamente a la estacion.");
-                snprintf(det_str, sizeof(det_str), "Deuterio cantidad: %d", msg->cantidad);
-            } else {
-                resp.exito = true;
-                resp.cantidad = msg->cantidad;
-                snprintf(resp.mensaje, sizeof(resp.mensaje), "Mineral %d vendido a la estacion.", msg->recurso);
-                snprintf(det_str, sizeof(det_str), "Mineral Tipo %d cantidad: %d", msg->recurso, msg->cantidad);
+            // Calcular precio total según el tipo de mineral
+            int precio_unitario = 0;
+            const char *nombre_mineral = "";
+            bool es_deuterio = false;
+            switch (msg->recurso) {
+                case MINERAL_DEUTERIO:
+                    precio_unitario = g.mapa->tarifas.precio_deuterio;
+                    nombre_mineral = "Deuterio";
+                    es_deuterio = true;
+                    break;
+                case MINERAL_MUTEXIO:
+                    precio_unitario = g.mapa->tarifas.precio_mutexio;
+                    nombre_mineral = "Mutexio";
+                    break;
+                case MINERAL_SEMAFORITA:
+                    precio_unitario = g.mapa->tarifas.precio_semaforita;
+                    nombre_mineral = "Semaforita";
+                    break;
+                case MINERAL_KERNELIO:
+                    precio_unitario = g.mapa->tarifas.precio_kernelio;
+                    nombre_mineral = "Kernelio";
+                    break;
+                default:
+                    precio_unitario = 0;
+                    break;
             }
+            int total_pago = msg->cantidad * precio_unitario;
+            lock_economia();
+            int slot_nave = buscar_slot_nave_por_pid(msg->pid_origen);
+            if (slot_nave == -1) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Nave no registrada en servidor.");
+                snprintf(det_str, sizeof(det_str), "Nave PID %d no encontrada", msg->pid_origen);
+            } else if (precio_unitario <= 0 || msg->cantidad <= 0) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Solicitud de venta invalida.");
+                snprintf(det_str, sizeof(det_str), "Venta invalida (recurso: %d, cantidad: %d)", msg->recurso, msg->cantidad);
+            } else if (g.estacion.creditos < total_pago) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Estacion sin creditos suficientes para comprar.");
+                snprintf(det_str, sizeof(det_str), "Sin fondos (pago: %d, saldo: %d)", total_pago, g.estacion.creditos);
+            } else {
+                if (es_deuterio) {
+                    barra_modificar(&g.estacion.barra_combustible, msg->cantidad);
+                }
+                g.estacion.creditos -= total_pago;
+                g.mapa->naves[slot_nave].creditos += total_pago;
+                resp.exito = true;
+                resp.cantidad = msg->cantidad;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "%s vendido: %d unidades x %d = %d créditos",
+                         nombre_mineral, msg->cantidad, precio_unitario, total_pago);
+                snprintf(det_str, sizeof(det_str), "%s cantidad: %d, Pago: %d Cr", nombre_mineral, msg->cantidad, total_pago);
+            }
+            unlock_economia();
         } 
         else if (msg->tipo == REQ_COMPRAR_COMBUSTIBLE) {
             snprintf(op_str, sizeof(op_str), "COMPRA COMBUSTIBLE");
             int fuel_estacion = barra_get_valor(&g.estacion.barra_combustible);
-            if (fuel_estacion > msg->cantidad + 50) {
+            int costo_combustible = msg->cantidad * g.mapa->tarifas.precio_combustible;
+            lock_economia();
+            int slot_nave = buscar_slot_nave_por_pid(msg->pid_origen);
+            
+            if (slot_nave == -1) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Nave no registrada en servidor.");
+                snprintf(det_str, sizeof(det_str), "Nave PID %d no encontrada", msg->pid_origen);
+            } else if (g.mapa->naves[slot_nave].creditos < costo_combustible) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Creditos insuficientes para combustible.");
+                snprintf(det_str, sizeof(det_str), "Creditos insuficientes (costo: %d, tiene: %d)",
+                         costo_combustible, g.mapa->naves[slot_nave].creditos);
+            } else if (fuel_estacion > msg->cantidad + 50) {
                 barra_modificar(&g.estacion.barra_combustible, -msg->cantidad);
+                g.mapa->naves[slot_nave].creditos -= costo_combustible;
+                g.estacion.creditos += costo_combustible;
                 resp.exito = true;
                 resp.cantidad = msg->cantidad;
-                snprintf(resp.mensaje, sizeof(resp.mensaje), "Combustible recargado.");
-                snprintf(det_str, sizeof(det_str), "Combustible cantidad: %d", msg->cantidad);
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Combustible recargado. Costo: %d Cr.", costo_combustible);
+                snprintf(det_str, sizeof(det_str), "Combustible cantidad: %d, Ingresos: %d Cr", msg->cantidad, costo_combustible);
             } else {
                 resp.exito = false;
                 resp.cantidad = 0;  
                 snprintf(resp.mensaje, sizeof(resp.mensaje), "Estacion con combustible insuficiente.");
                 snprintf(det_str, sizeof(det_str), "Combustible insuficiente (solicitado: %d)", msg->cantidad);
             }
+            unlock_economia();
         } 
         else if (msg->tipo == REQ_COMPRAR_OXIGENO) {
             snprintf(op_str, sizeof(op_str), "COMPRA OXIGENO");
-            resp.exito = true;
-            resp.cantidad = msg->cantidad;
-            snprintf(resp.mensaje, sizeof(resp.mensaje), "Oxigeno reabastecido.");
-            snprintf(det_str, sizeof(det_str), "Oxigeno cantidad: %d", msg->cantidad);
+            int costo_oxigeno = msg->cantidad * g.mapa->tarifas.precio_oxigeno;
+            lock_economia();
+            int slot_nave = buscar_slot_nave_por_pid(msg->pid_origen);
+            if (slot_nave == -1) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Nave no registrada en servidor.");
+                snprintf(det_str, sizeof(det_str), "Nave PID %d no encontrada", msg->pid_origen);
+            } else if (g.mapa->naves[slot_nave].creditos < costo_oxigeno) {
+                resp.exito = false;
+                resp.cantidad = 0;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Creditos insuficientes para oxigeno.");
+                snprintf(det_str, sizeof(det_str), "Creditos insuficientes (costo: %d, tiene: %d)",
+                         costo_oxigeno, g.mapa->naves[slot_nave].creditos);
+            } else {
+                resp.exito = true;
+                resp.cantidad = msg->cantidad;
+                g.mapa->naves[slot_nave].creditos -= costo_oxigeno;
+                g.estacion.creditos += costo_oxigeno;
+                snprintf(resp.mensaje, sizeof(resp.mensaje), "Oxigeno reabastecido. Costo: %d Cr.", costo_oxigeno);
+                snprintf(det_str, sizeof(det_str), "Oxigeno cantidad: %d, Ingresos: %d Cr", msg->cantidad, costo_oxigeno);
+            }
+            unlock_economia();
         }
 
         /* Registrar en bitácora */
@@ -493,6 +601,7 @@ int main(int argc, char *argv[])
     memset(&g, 0, sizeof(g));
     g.mq_fd = (mqd_t)-1;
     g.sem_hangar = SEM_FAILED;
+    g.sem_economia = SEM_FAILED;
 
     struct sigaction sa;
     sa.sa_handler = handle_signal;
@@ -517,6 +626,11 @@ int main(int argc, char *argv[])
 
     /* 3. Cargar configuración de tarifas */
     cargar_configuracion("config.txt", &g.config);
+
+    g.sem_economia = sem_open("/economia_sem", O_CREAT, 0660, 1);
+    if (g.sem_economia == SEM_FAILED) {
+        perror("sem_open economia falló");
+    }
 
     /* 4. Crear semáforo contador del Hangar (máximo 3 naves) */
     snprintf(g.sem_name, sizeof(g.sem_name), "/estacion_sem_%d_%d", g.x, g.y);
@@ -552,6 +666,7 @@ int main(int argc, char *argv[])
 
     pthread_mutex_init(&g.mx_estado, NULL);
     g.activo = 1;
+    g.estacion.creditos = CREDITOS_INICIALES_ESTACION;
 
     printf("[ESTACION (%d,%d)] Activada (PID %d). Hangar libre (capacidad: 3).\n", g.x, g.y, getpid());
 
@@ -573,6 +688,9 @@ int main(int argc, char *argv[])
 
     barra_destroy(&g.estacion.barra_combustible);
     pthread_mutex_destroy(&g.mx_estado);
+    if (g.sem_economia != SEM_FAILED) {
+        sem_close(g.sem_economia);
+    }
     limpiar_recursos_ipc();
     mapa_desconectar(g.mapa);
 

@@ -5,6 +5,7 @@
 #include <semaphore.h>
 #include <stdbool.h>
 #include "asteroide.h"
+#include "recursos.h"
 
 #define MAP_ROWS 24
 #define MAP_COLS 80
@@ -29,6 +30,7 @@ typedef struct {
     sem_t semaforos[MAP_ROWS][MAP_COLS];
     ASTEROIDE asteroides[MAX_ASTEROIDES];
     RegistroNave naves[MAX_NAVES];
+    TarifasComerciales tarifas;
 } MapaCompartido;
 
 MapaCompartido *mapa_crear_servidor(void);
