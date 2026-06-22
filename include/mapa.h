@@ -39,6 +39,7 @@ typedef struct {
     RegistroNave naves[MAX_NAVES];
     TarifasComerciales tarifas;
     bool servidor_activo;
+    bool game_over_global;
 } MapaCompartido;
 
 MapaCompartido *mapa_crear_servidor(void);

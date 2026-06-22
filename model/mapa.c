@@ -161,6 +161,7 @@ void mapa_limpiar(MapaCompartido *mapa)
         mapa->naves[i].creditos = 0;
     }
     mapa->servidor_activo = true;
+    mapa->game_over_global = false;
 }
 
 void mapa_desconectar(MapaCompartido *mapa)
