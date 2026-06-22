@@ -1,3 +1,16 @@
+/* =============================================================================
+ * src/nave.c — Proceso cliente de Nave Espacial (CosmiKernel)
+ *
+ * Responsabilidades:
+ *   1. Interfaz del jugador (HUD con ncurses).
+ *   2. Múltiples hilos (pthreads) para: Soporte Vital (consumo O2), 
+ *      Propulsión (input de usuario y consumo de fuel por movimiento),
+ *      Extracción, y Radar (actualización de UI a partir de SHM).
+ *   3. Comercio: se comunica con las MQs de las estaciones para 
+ *      transacciones de recursos.
+ *   4. Loot: Puede minar asteroides o saquear otras naves caídas usando
+ *      mutexes PTHREAD_PROCESS_SHARED para evitar race conditions.
+ * ============================================================================= */
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>

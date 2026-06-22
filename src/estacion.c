@@ -1,3 +1,20 @@
+/* =============================================================================
+ * src/estacion.c — Proceso cliente de Estación Espacial (CosmiKernel)
+ *
+ * Responsabilidades:
+ *   1. Mapear la memoria compartida (SHM) del mapa y buscar un lugar libre.
+ *   2. Hilo Combustible: Consumir combustible con el paso del tiempo. Si
+ *      llega a 0, la estación explota (Game Over local).
+ *   3. Hilo Transacciones: Procesar compras/ventas enviadas por naves
+ *      mediante Colas de Mensajes POSIX (MQs).
+ * 
+ * Inter-Process Communication (IPC):
+ *   - Usa "mqueue.h" para recibir peticiones de comercio. Las naves
+ *     envían structs de PeticionComercial a la cola de la estación,
+ *     y la estación les responde a través de colas de respuesta
+ *     específicas de cada nave.
+ *   - Semáforos y Mutex POSIX garantizan la sincronización.
+ * ============================================================================= */
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
