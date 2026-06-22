@@ -143,81 +143,162 @@ static void publicar_tarifas(MapaCompartido *mapa, const Configuracion *config)
     mapa->tarifas.precio_oxigeno     = config->precio_oxigeno;
 }
 
+static long obtener_tiempo_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 /* ── Generación de asteroides ───────────────────────────────────────────── */
-/*
- * Ubica 'config->asteroides' asteroides en posiciones aleatorias del mapa.
- * Cada celda está protegida por un semáforo binario: se usa sem_trywait()
- * para no bloquear y probar otra posición si la celda está ocupada.
- *
- * Cada asteroide tiene un mutex PROCESS_SHARED para arbitrar el minado
- * concurrente cuando dos naves intentan minar el mismo asteroide a la vez.
- */
-static void generar_entorno(MapaCompartido *mapa, const Configuracion *config)
+static void spawn_asteroide(MapaCompartido *mapa, int ast_idx)
 {
-    srand((unsigned int)time(NULL));
+    ASTEROIDE *ast = &mapa->asteroides[ast_idx];
+    ast->es_movil = (rand() % 100 < 50); // 50% de probabilidad
 
-    /* Atributo compartido para los mutexes de asteroides */
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    int x = 0, y = 0;
+    bool exito = false;
+    int intentos = 0;
 
-    for (int i = 0; i < config->asteroides; i++) {
-        int  x = 0, y = 0;
-        bool exito   = false;
-        int  intentos = 0;
-
-        /* Buscar celda libre aleatoria */
+    if (ast->es_movil) {
+        int x1, y1, x2, y2;
+        if (rand() % 2 == 0) { // Borde vertical
+            x1 = (rand() % 2 == 0) ? 0 : MAP_COLS - 1;
+            y1 = rand() % MAP_ROWS;
+            x2 = (x1 == 0) ? MAP_COLS - 1 : 0;
+            y2 = rand() % MAP_ROWS;
+        } else { // Borde horizontal
+            x1 = rand() % MAP_COLS;
+            y1 = (rand() % 2 == 0) ? 0 : MAP_ROWS - 1;
+            x2 = rand() % MAP_COLS;
+            y2 = (y1 == 0) ? MAP_ROWS - 1 : 0;
+        }
+        
+        generar_trayectoria_bresenham(x1, y1, x2, y2, &ast->trayectoria);
+        
+        // Buscar la primera celda libre en la trayectoria
+        for (int i = 0; i < ast->trayectoria.cantidad; i++) {
+            if (adquirir_posicion_inicial(mapa, ast->trayectoria.puntos[i].x, ast->trayectoria.puntos[i].y, CHAR_ASTEROIDE, false)) {
+                ast->trayectoria.indice_actual = i;
+                x = ast->trayectoria.puntos[i].x;
+                y = ast->trayectoria.puntos[i].y;
+                exito = true;
+                break;
+            }
+        }
+        ast->velocidad_ms = 500 + (rand() % 1500); // 500ms a 2000ms
+        ast->ultimo_movimiento_ms = obtener_tiempo_ms();
+    } else {
         while (!exito && intentos < 10000) {
             x = rand() % MAP_COLS;
             y = rand() % MAP_ROWS;
             exito = adquirir_posicion_inicial(mapa, x, y, CHAR_ASTEROIDE, false);
             intentos++;
         }
-
-        if (!exito) {
-            fprintf(stderr, "[SERVIDOR] No se pudo ubicar asteroide %d: mapa lleno.\n", i + 1);
-            continue;
-        }
-
-        /* Buscar slot libre en el arreglo de asteroides de la SHM */
-        int ast_idx = -1;
-        for (int k = 0; k < MAX_ASTEROIDES; k++) {
-            if (!mapa->asteroides[k].activo) { ast_idx = k; break; }
-        }
-
-        if (ast_idx == -1) {
-            fprintf(stderr, "[SERVIDOR] Sin ranuras de asteroides libres en SHM.\n");
-            continue;
-        }
-
-        ASTEROIDE *ast = &mapa->asteroides[ast_idx];
-        ast->pos_x          = x;
-        ast->pos_y          = y;
-        ast->base.id        = ast_idx;
-        ast->base.tipo      = TIPO_ASTEROIDE;
-        ast->base.x         = (float)x;
-        ast->base.y         = (float)y;
-        ast->base.velocidad = 0.0f;
-
-        pthread_mutex_init(&ast->mutex, &attr);
-
-        /* Asignar minerales al azar con 75% de probabilidad por tipo */
-        bool tiene_mineral = false;
-        for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
-            if (rand() % 100 < 75) {
-                ast->minerales[m] = 100 + (rand() % 401); /* 100–500 unidades */
-                tiene_mineral = true;
-            } else {
-                ast->minerales[m] = 0;
-            }
-        }
-        /* Garantizar al menos deuterio para que siempre haya combustible */
-        if (!tiene_mineral) ast->minerales[MINERAL_DEUTERIO] = 200;
-
-        ast->activo = true;
     }
 
+    if (!exito) {
+        ast->activo = false;
+        return;
+    }
+
+    ast->pos_x = x;
+    ast->pos_y = y;
+    ast->base.id = ast_idx;
+    ast->base.tipo = TIPO_ASTEROIDE;
+    ast->base.x = (float)x;
+    ast->base.y = (float)y;
+    ast->base.velocidad = 0.0f;
+
+    bool tiene_mineral = false;
+    for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+        if (rand() % 100 < 75) {
+            ast->minerales[m] = 100 + (rand() % 401);
+            tiene_mineral = true;
+        } else {
+            ast->minerales[m] = 0;
+        }
+    }
+    if (!tiene_mineral) ast->minerales[MINERAL_DEUTERIO] = 200;
+
+    ast->activo = true;
+}
+
+static void generar_entorno(MapaCompartido *mapa, const Configuracion *config)
+{
+    srand((unsigned int)time(NULL));
+
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+
+    for (int i = 0; i < MAX_ASTEROIDES; i++) {
+        pthread_mutex_init(&mapa->asteroides[i].mutex, &attr);
+        mapa->asteroides[i].activo = false;
+    }
     pthread_mutexattr_destroy(&attr);
+
+    for (int i = 0; i < config->asteroides; i++) {
+        spawn_asteroide(mapa, i);
+    }
+}
+
+static MapaCompartido *mapa_global = NULL;
+static int max_asteroides_config = 0;
+
+static void* hilo_movimiento_asteroides(void* arg) {
+    (void)arg;
+    while (keep_running) {
+        long ahora = obtener_tiempo_ms();
+        int activos = 0;
+
+        for (int i = 0; i < MAX_ASTEROIDES; i++) {
+            ASTEROIDE *ast = &mapa_global->asteroides[i];
+            if (ast->activo) {
+                activos++;
+                if (ast->es_movil) {
+                    if (ahora - ast->ultimo_movimiento_ms >= ast->velocidad_ms) {
+                        // Anclaje Magnético: trylock
+                        if (pthread_mutex_trylock(&ast->mutex) == 0) {
+                            int next_idx = ast->trayectoria.indice_actual + 1;
+                            if (next_idx < ast->trayectoria.cantidad) {
+                                int nx = ast->trayectoria.puntos[next_idx].x;
+                                int ny = ast->trayectoria.puntos[next_idx].y;
+                                
+                                if (intentar_mover_objeto(mapa_global, &ast->pos_x, &ast->pos_y, nx, ny, CHAR_ASTEROIDE, false)) {
+                                    ast->trayectoria.indice_actual = next_idx;
+                                    ast->base.x = (float)ast->pos_x;
+                                    ast->base.y = (float)ast->pos_y;
+                                }
+                            } else {
+                                // Final de trayectoria
+                                liberar_posicion(mapa_global, ast->pos_x, ast->pos_y);
+                                ast->activo = false;
+                                activos--;
+                            }
+                            ast->ultimo_movimiento_ms = ahora;
+                            pthread_mutex_unlock(&ast->mutex);
+                        } else {
+                            // Está siendo minado, anclado temporalmente
+                            ast->ultimo_movimiento_ms = ahora;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (activos < max_asteroides_config) {
+            for (int i = 0; i < MAX_ASTEROIDES; i++) {
+                if (!mapa_global->asteroides[i].activo) {
+                    spawn_asteroide(mapa_global, i);
+                    break;
+                }
+            }
+        }
+
+        struct timespec req_ast = {0, 50000000}; // 50ms
+        nanosleep(&req_ast, NULL);
+    }
+    return NULL;
 }
 
 /* ── Contar estaciones activas en el mapa ───────────────────────────────── */
@@ -302,7 +383,12 @@ int main(int argc, char *argv[])
 
     /* 6. Poblar el mapa con asteroides */
     generar_entorno(mapa, &config);
-    printf("[SERVIDOR] Mapa inicializado. En espera de clientes...\n");
+    printf("[SERVIDOR] Mapa inicializado. Lanzando hilo de asteroides...\n");
+
+    mapa_global = mapa;
+    max_asteroides_config = config.asteroides;
+    pthread_t t_asteroides;
+    pthread_create(&t_asteroides, NULL, hilo_movimiento_asteroides, NULL);
 
     /* 7. Loop principal: renderizar mapa y vigilar condición de Game Over.
      *    El Game Over global ocurre cuando todas las estaciones desaparecen
@@ -339,6 +425,9 @@ int main(int argc, char *argv[])
 
     /* Guardar estado en disco antes de liberar la SHM */
     guardar_estado(mapa);
+
+    /* Esperar que termine el hilo de asteroides */
+    pthread_join(t_asteroides, NULL);
 
     /* Notificar a los clientes poniendo el flag en false.
      * Los clientes pollan este flag y reaccionan al detectarlo.

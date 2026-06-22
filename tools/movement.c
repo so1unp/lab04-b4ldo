@@ -1,4 +1,5 @@
 #include "movement.h"
+#include "mapa.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

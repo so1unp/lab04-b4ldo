@@ -7,8 +7,6 @@ int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS])
         return -1;
     }
 
-    pthread_mutex_lock(&ast->mutex);
-
     bool tiene_minerales = false;
     for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
         if (ast->minerales[m] > 0) {
@@ -23,7 +21,6 @@ int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS])
     }
 
     if (!tiene_minerales) {
-        pthread_mutex_unlock(&ast->mutex);
         return -1; // Ya estaba vacío
     }
 
@@ -38,10 +35,8 @@ int asteroide_minar(ASTEROIDE *ast, int extraido[CANTIDAD_RECURSOS])
 
     if (vacio) {
         ast->activo = false;
-        pthread_mutex_unlock(&ast->mutex);
         return 0; // Se agotó por completo
     }
 
-    pthread_mutex_unlock(&ast->mutex);
     return 1; // Aún le quedan minerales
 }

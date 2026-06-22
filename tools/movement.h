@@ -1,8 +1,9 @@
 #ifndef MOVEMENT_H
 #define MOVEMENT_H
 
-#include "mapa.h"
 #include <stdbool.h>
+
+typedef struct MapaCompartido MapaCompartido;
 
 #define MAX_TRAYECTORIA 256
 
