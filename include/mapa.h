@@ -75,7 +75,7 @@ typedef struct {
  *                    pollan este flag para detectar la desconexión y terminar.
  *   game_over_global: true si todas las estaciones explotaron.
  * ──────────────────────────────────────────────────────────────────────── */
-typedef struct {
+typedef struct MapaCompartido {
     char         celdas[MAP_ROWS][MAP_COLS];
     sem_t        semaforos[MAP_ROWS][MAP_COLS];
     ASTEROIDE    asteroides[MAX_ASTEROIDES];

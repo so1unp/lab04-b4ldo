@@ -139,6 +139,12 @@ static void game_over(const char *motivo)
     (void)motivo;
 }
 
+static void handle_signal(int sig)
+{
+    (void)sig;
+    g.vivo = 0;
+}
+
 
 
 /* ─── Gestión de ingreso y egreso de Hangar ─────────────────────── */
@@ -602,20 +608,39 @@ static void *hilo_propulsion(void *arg)
                         strncpy(g.hud_error, "Nada cerca para extraer/saquear", sizeof(g.hud_error));
                         g.hud_error_recibido = time(NULL);
                         g.prog_ext = -1;
+                        if (g.ast_anclado) {
+                            pthread_mutex_unlock(&g.ast_anclado->mutex);
+                            g.ast_anclado = NULL;
+                        }
                     }
                 } else {
                     if (g.prog_ext < 0) {
-                        g.prog_ext = 0;
+                        // Anclaje Magnético
+                        if (pthread_mutex_trylock(&ast->mutex) == 0) {
+                            g.ast_anclado = ast;
+                            g.prog_ext = 0;
+                        } else {
+                            strncpy(g.hud_error, "Asteroide ocupado!", sizeof(g.hud_error));
+                            g.hud_error_recibido = time(NULL);
+                            pthread_mutex_unlock(&g.mx_estado);
+                            continue;
+                        }
                     }
                     g.prog_ext += 10;
                     g.ultimo_e_press = obtener_tiempo_ms();
 
                     if (g.prog_ext >= 100) {
                         g.prog_ext = -1;
+                        ASTEROIDE *ast_fin = g.ast_anclado;
+                        g.ast_anclado = NULL;
                         pthread_mutex_unlock(&g.mx_estado);
 
                         int extraido[CANTIDAD_RECURSOS] = {0};
-                        int res_minado = asteroide_minar(ast, extraido);
+                        int res_minado = asteroide_minar(ast_fin, extraido);
+                        // Liberar el anclaje después de extraer
+                        if (ast_fin != NULL) {
+                            pthread_mutex_unlock(&ast_fin->mutex);
+                        }
 
                         pthread_mutex_lock(&g.mx_estado);
                         if (res_minado >= 0) {
@@ -722,6 +747,10 @@ static void *hilo_extraccion(void *arg)
         // Si la nave se mueve, se aborta la extracción
         if (g.x != nave_x || g.y != nave_y) {
             g.prog_ext = -1;
+            if (g.ast_anclado) {
+                pthread_mutex_unlock(&g.ast_anclado->mutex);
+                g.ast_anclado = NULL;
+            }
             strncpy(g.hud_error, "Minado cancelado:\n movimiento", sizeof(g.hud_error));
             g.hud_error_recibido = time(NULL);
             pthread_mutex_unlock(&g.mx_estado);
@@ -731,6 +760,10 @@ static void *hilo_extraccion(void *arg)
         // Si la nave se queda sin combustible
         if (barra_get_valor(&g.nave.barra_combustible) <= 0) {
             g.prog_ext = -1;
+            if (g.ast_anclado) {
+                pthread_mutex_unlock(&g.ast_anclado->mutex);
+                g.ast_anclado = NULL;
+            }
             pthread_mutex_unlock(&g.mx_estado);
             game_over("combustible");
             continue;
@@ -742,6 +775,10 @@ static void *hilo_extraccion(void *arg)
             g.prog_ext -= 10;
             if (g.prog_ext <= 0) {
                 g.prog_ext = -1;
+                if (g.ast_anclado) {
+                    pthread_mutex_unlock(&g.ast_anclado->mutex);
+                    g.ast_anclado = NULL;
+                }
                 strncpy(g.hud_error, "Minado cancelado:\n inactividad", sizeof(g.hud_error));
                 g.hud_error_recibido = time(NULL);
             }
@@ -807,6 +844,7 @@ int main(int argc, char *argv[])
             g.mapa->naves[i].pid = getpid();
             g.mapa->naves[i].creditos = 0;
             g.mapa->naves[i].activo = true;
+            g.mapa->naves[i].incapacitada = false;
             g.nave_slot_shm = i;
             break;
         }
@@ -845,6 +883,13 @@ int main(int argc, char *argv[])
         mapa_desconectar(g.mapa);
         exit(EXIT_FAILURE);
     }
+
+    struct sigaction sa;
+    sa.sa_handler = handle_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
 
     /* 3. Inicializar barras */
     barra_init(&g.nave.barra_combustible,
@@ -915,6 +960,11 @@ int main(int argc, char *argv[])
 
     cleanup_ncurses();
     salir_de_hangar();
+
+    if (g.ast_anclado) {
+        pthread_mutex_unlock(&g.ast_anclado->mutex);
+        g.ast_anclado = NULL;
+    }
 
     if (g.mapa->servidor_activo) {
         // La nave murió, dejar los recursos como "presa"

@@ -39,6 +39,7 @@ typedef struct {
     volatile sig_atomic_t extrayendo;
     long long         ultimo_e_press; // Tiempo del último toque al botón E en milisegundos
     volatile int      prog_ext;       // Progreso de extracción (-1 inactivo, 0-100 activo)
+    ASTEROIDE        *ast_anclado;    // Puntero al asteroide actualmente anclado
     pthread_mutex_t   mx_estado;
 
     /* Gestión del Hangar e IPC */

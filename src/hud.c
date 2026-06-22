@@ -235,7 +235,7 @@ static void render_frame(void)
     /* GAME OVER */
     if (!g.vivo) {
         wattron(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
-        mvwprintw(win_hud, 25, 1, "*** GAME OVER ***");
+        mvwprintw(win_hud, 24, 1, "*** GAME OVER ***");
         wattroff(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
     }
 
