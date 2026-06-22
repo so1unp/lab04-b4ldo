@@ -233,7 +233,31 @@ int main(int argc, char *argv[])
 
     // Bucle principal: Limpiar terminal, renderizar mapa y esperar
     struct timespec req = {1, 0}; // 1 segundo
+    bool juego_iniciado = false;
     while (keep_running) {
+        int estaciones_actuales = 0;
+        for (int r = 0; r < MAP_ROWS; r++) {
+            for (int c = 0; c < MAP_COLS; c++) {
+                if (mapa->celdas[r][c] == CHAR_ESTACION) {
+                    estaciones_actuales++;
+                }
+            }
+        }
+        
+        if (estaciones_actuales > 0) {
+            juego_iniciado = true;
+        }
+
+        if (juego_iniciado && estaciones_actuales == 0) {
+            printf("\033[H\033[J");
+            printf("\n================================================================================\n");
+            printf("[SERVIDOR] ¡TODAS LAS ESTACIONES HAN SIDO DESTRUIDAS! GAME OVER GLOBAL.\n");
+            printf("================================================================================\n");
+            mapa->game_over_global = true;
+            keep_running = 0;
+            continue;
+        }
+
         // Limpiar pantalla usando códigos de escape ANSI
         printf("\033[H\033[J");
         printf("=== COSMIKERNEL: SERVIDOR DEL CUADRANTE ESPACIAL ===\n");
@@ -250,7 +274,11 @@ int main(int argc, char *argv[])
         nanosleep(&req, NULL);
     }
 
-    printf("\n[SERVIDOR] Apagando el servidor...\n");
+    if (mapa->game_over_global) {
+        printf("\n[SERVIDOR] Apagando el servidor por GAME OVER...\n");
+    } else {
+        printf("\n[SERVIDOR] Apagando el servidor...\n");
+    }
 
     // Guardar estado y notificar a los clientes
     guardar_estado(mapa);

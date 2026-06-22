@@ -878,7 +878,11 @@ int main(int argc, char *argv[])
     /* Loop principal: espera a que el juego termine */
     while (g.vivo) {
         if (!g.mapa->servidor_activo) {
-            strncpy(g.hud_error, "SERVIDOR DESCONECTADO", sizeof(g.hud_error));
+            if (g.mapa->game_over_global) {
+                strncpy(g.hud_error, "GAME OVER: Estaciones DESTRUIDAS", sizeof(g.hud_error));
+            } else {
+                strncpy(g.hud_error, "SERVIDOR DESCONECTADO", sizeof(g.hud_error));
+            }
             g.hud_error_recibido = time(NULL);
             g.vivo = 0;
             break;
