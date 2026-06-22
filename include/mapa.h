@@ -31,6 +31,7 @@ typedef struct {
     ASTEROIDE asteroides[MAX_ASTEROIDES];
     RegistroNave naves[MAX_NAVES];
     TarifasComerciales tarifas;
+    bool servidor_activo;
 } MapaCompartido;
 
 MapaCompartido *mapa_crear_servidor(void);

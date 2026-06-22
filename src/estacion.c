@@ -676,6 +676,11 @@ int main(int argc, char *argv[])
     pthread_create(&t_transacciones, NULL, hilo_transacciones, NULL);
 
     while (g.activo) {
+        if (!g.mapa->servidor_activo) {
+            printf("[ESTACION (%d,%d)] Servidor desconectado. Apagando.\n", g.x, g.y);
+            g.activo = 0;
+            break;
+        }
         dormir_ms(200);
     }
 

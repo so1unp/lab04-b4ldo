@@ -79,3 +79,9 @@
 [2026-06-20 22:08:44] Estacion (60,7) | Nave PID 69570 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
 [2026-06-20 22:08:45] Estacion (60,7) | Nave PID 69570 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40 | Resultado: EXITO
 [2026-06-20 22:08:56] Estacion (60,7) | Nave PID 69570 | Operacion: VENTA MINERAL | Detalle: Deuterio cantidad: 20 | Resultado: EXITO
+[2026-06-22 00:16:10] Estacion (58,8) | Nave PID 155251 | Operacion: VENTA MINERAL | Detalle: Mutexio cantidad: 100, Pago: 2000 Cr | Resultado: EXITO
+[2026-06-22 00:16:10] Estacion (58,8) | Nave PID 155251 | Operacion: VENTA MINERAL | Detalle: Semaforita cantidad: 100, Pago: 3000 Cr | Resultado: EXITO
+[2026-06-22 00:16:15] Estacion (58,8) | Nave PID 155251 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 40, Ingresos: 200 Cr | Resultado: EXITO
+[2026-06-22 00:16:16] Estacion (58,8) | Nave PID 155251 | Operacion: COMPRA COMBUSTIBLE | Detalle: Combustible cantidad: 14, Ingresos: 70 Cr | Resultado: EXITO
+[2026-06-22 00:16:29] Estacion (58,8) | Nave PID 155251 | Operacion: VENTA MINERAL | Detalle: Mutexio cantidad: 191, Pago: 3820 Cr | Resultado: EXITO
+[2026-06-22 00:16:29] Estacion (58,8) | Nave PID 155251 | Operacion: VENTA MINERAL | Detalle: Sin fondos (pago: 7350, saldo: 1450) | Resultado: FALLIDO
