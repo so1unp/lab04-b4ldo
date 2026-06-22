@@ -93,6 +93,31 @@ static ASTEROIDE* buscar_asteroide_adyacente(int *out_x, int *out_y)
     return NULL;
 }
 
+static RegistroNave* buscar_nave_incapacitada_adyacente(int *out_x, int *out_y)
+{
+    int dirs[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+    for (int i = 0; i < 4; i++) {
+        int tx = g.x + dirs[i][0];
+        int ty = g.y + dirs[i][1];
+        if (tx >= 0 && tx < MAP_COLS && ty >= 0 && ty < MAP_ROWS) {
+            if (g.mapa->celdas[ty][tx] == CHAR_NAVE) {
+                // Buscar en memoria compartida
+                for (int j = 0; j < MAX_NAVES; j++) {
+                    if (g.mapa->naves[j].activo && 
+                        g.mapa->naves[j].incapacitada &&
+                        g.mapa->naves[j].pos_x == tx && 
+                        g.mapa->naves[j].pos_y == ty) {
+                        if (out_x) *out_x = tx;
+                        if (out_y) *out_y = ty;
+                        return &g.mapa->naves[j];
+                    }
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
 static void game_over(const char *motivo)
 {
     pthread_mutex_lock(&g.mx_estado);
@@ -535,9 +560,36 @@ static void *hilo_propulsion(void *arg)
                 int ast_x = -1, ast_y = -1;
                 ASTEROIDE *ast = buscar_asteroide_adyacente(&ast_x, &ast_y);
                 if (ast == NULL) {
-                    strncpy(g.hud_error, "No hay asteroide cerca", sizeof(g.hud_error));
-                    g.hud_error_recibido = time(NULL);
-                    g.prog_ext = -1;
+                    RegistroNave *nave_muerta = buscar_nave_incapacitada_adyacente(&ast_x, &ast_y);
+                    if (nave_muerta != NULL) {
+                        // Saqueo instantáneo
+                        pthread_mutex_lock(&nave_muerta->mutex);
+                        if (nave_muerta->activo && nave_muerta->incapacitada) {
+                            int looted_fuel = nave_muerta->combustible;
+                            int looted_o2 = nave_muerta->oxigeno;
+                            for (int m = 0; m < CANTIDAD_RECURSOS; m++) {
+                                g.nave.inventario[m] += nave_muerta->inventario[m];
+                            }
+                            barra_modificar(&g.nave.barra_combustible, looted_fuel);
+                            barra_modificar(&g.nave.barra_oxigeno, looted_o2);
+                            
+                            nave_muerta->activo = false;
+                            nave_muerta->incapacitada = false;
+                            liberar_posicion(g.mapa, ast_x, ast_y);
+                            
+                            snprintf(g.hud_error, sizeof(g.hud_error), "Loot! F:+%d O2:+%d", looted_fuel, looted_o2);
+                            g.hud_error_recibido = time(NULL);
+                        } else {
+                            strncpy(g.hud_error, "La nave ya fue saqueada", sizeof(g.hud_error));
+                            g.hud_error_recibido = time(NULL);
+                        }
+                        pthread_mutex_unlock(&nave_muerta->mutex);
+                        g.prog_ext = -1;
+                    } else {
+                        strncpy(g.hud_error, "Nada cerca para extraer/saquear", sizeof(g.hud_error));
+                        g.hud_error_recibido = time(NULL);
+                        g.prog_ext = -1;
+                    }
                 } else {
                     if (g.prog_ext < 0) {
                         g.prog_ext = 0;
@@ -847,17 +899,37 @@ int main(int argc, char *argv[])
     cleanup_ncurses();
     salir_de_hangar();
 
-    liberar_posicion(g.mapa, g.x, g.y);
+    if (g.mapa->servidor_activo) {
+        // La nave murió, dejar los recursos como "presa"
+        if (g.nave_slot_shm != -1) {
+            lock_economia();
+            g.mapa->naves[g.nave_slot_shm].incapacitada = true;
+            g.mapa->naves[g.nave_slot_shm].pos_x = g.x;
+            g.mapa->naves[g.nave_slot_shm].pos_y = g.y;
+            for (int i = 0; i < CANTIDAD_RECURSOS; i++) {
+                g.mapa->naves[g.nave_slot_shm].inventario[i] = g.nave.inventario[i];
+            }
+            g.mapa->naves[g.nave_slot_shm].combustible = barra_get_valor(&g.nave.barra_combustible);
+            if (g.mapa->naves[g.nave_slot_shm].combustible < 0) g.mapa->naves[g.nave_slot_shm].combustible = 0;
+            g.mapa->naves[g.nave_slot_shm].oxigeno = barra_get_valor(&g.nave.barra_oxigeno);
+            if (g.mapa->naves[g.nave_slot_shm].oxigeno < 0) g.mapa->naves[g.nave_slot_shm].oxigeno = 0;
+            unlock_economia();
+        }
+    } else {
+        // El servidor se cerró, limpieza completa
+        liberar_posicion(g.mapa, g.x, g.y);
+        if (g.nave_slot_shm != -1) {
+            lock_economia();
+            g.mapa->naves[g.nave_slot_shm].activo = false;
+            unlock_economia();
+        }
+    }
+
     barra_destroy(&g.nave.barra_combustible);
     barra_destroy(&g.nave.barra_oxigeno);
     
     pthread_cond_destroy(&g.cond_respuesta);
     pthread_mutex_destroy(&g.mx_estado);
-    if (g.nave_slot_shm != -1) {
-        lock_economia();
-        g.mapa->naves[g.nave_slot_shm].activo = false;
-        unlock_economia();
-    }
     if (g_sem_economia != SEM_FAILED) {
         sem_close(g_sem_economia);
     }
