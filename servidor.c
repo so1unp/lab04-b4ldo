@@ -198,6 +198,14 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Inicializar tarifas comerciales en memoria compartida
+    mapa->tarifas.precio_deuterio = config.precio_deuterio;
+    mapa->tarifas.precio_mutexio = config.precio_mutexio;
+    mapa->tarifas.precio_semaforita = config.precio_semaforita;
+    mapa->tarifas.precio_kernelio = config.precio_kernelio;
+    mapa->tarifas.precio_combustible = config.precio_combustible;
+    mapa->tarifas.precio_oxigeno = config.precio_oxigeno;
+
     // 3. Ubicar asteroides y estaciones
     generar_entorno(mapa, &config);
     printf("[SERVIDOR] Mapa inicializado y poblado con éxito.\n");
