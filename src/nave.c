@@ -511,81 +511,59 @@ static bool puede_disparar(void)
     return true;
 }
 
-static void disparar_misil(void)
+static int buscar_slot_nave_en_posicion(int x, int y)
 {
-    if (!puede_disparar()) return;
-
-    // Descontar combustible
-    barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MISIL);
-
-    int tx = g.x;
-    int ty = g.y;
-    bool impacto = false;
-    int pid_impactado = 0;
-    int escudo_restante = 0;
-
-    for (int i = 1; i <= RANGO_MISIL; i++) {
-        tx += g.dir_x;
-        ty += g.dir_y;
-
-        // Chequear límites del mapa
-        if (tx < 0 || tx >= MAP_COLS || ty < 0 || ty >= MAP_ROWS) {
-            break;
-        }
-
-        char celda = g.mapa->celdas[ty][tx];
-
-        // Si choca con asteroide o estación, se detiene
-        if (celda == CHAR_ASTEROIDE || celda == CHAR_ESTACION) {
-            break;
-        }
-
-        // Si choca con una nave
-        if (celda == CHAR_NAVE) {
-            // Buscar qué nave es en la memoria compartida
-            lock_economia();
-            int target_slot = -1;
-            for (int j = 0; j < MAX_NAVES; j++) {
-                if (g.mapa->naves[j].activo && !g.mapa->naves[j].incapacitada &&
-                    g.mapa->naves[j].pos_x == tx && g.mapa->naves[j].pos_y == ty) {
-                    target_slot = j;
-                    break;
-                }
-            }
-            unlock_economia();
-
-            if (target_slot != -1) {
-                RegistroNave *target = &g.mapa->naves[target_slot];
-                pthread_mutex_lock(&target->mutex);
-                
-                // Verificar de nuevo bajo el mutex
-                if (target->activo && !target->incapacitada) {
-                    target->escudo -= DANIO_MISIL;
-                    if (target->escudo < 0) {
-                        target->escudo = 0;
-                    }
-                    escudo_restante = target->escudo;
-                    pid_impactado = target->pid;
-                    impacto = true;
-
-                    if (target->escudo == 0) {
-                        target->incapacitada = true;
-                    }
-                }
-                
-                pthread_mutex_unlock(&target->mutex);
-            }
-            break; // El misil explota al chocar con la nave
-        }
-
-        // Animación visual del misil viajando por el mapa
-        if (celda == CHAR_VACIO) {
-            g.mapa->celdas[ty][tx] = '*';
-            dormir_ms(50);
-            g.mapa->celdas[ty][tx] = CHAR_VACIO;
+    int target_slot = -1;
+    lock_economia();
+    for (int j = 0; j < MAX_NAVES && target_slot == -1; j++) {
+        if (g.mapa->naves[j].activo && !g.mapa->naves[j].incapacitada &&
+            g.mapa->naves[j].pos_x == x && g.mapa->naves[j].pos_y == y) {
+            target_slot = j;
         }
     }
+    unlock_economia();
+    return target_slot;
+}
 
+static bool aplicar_danio_a_nave(int target_slot, int *out_pid, int *out_escudo_restante)
+{
+    if (target_slot == -1) {
+        return false;
+    }
+
+    bool impacto = false;
+    RegistroNave *target = &g.mapa->naves[target_slot];
+    pthread_mutex_lock(&target->mutex);
+    
+    if (target->activo && !target->incapacitada) {
+        target->escudo -= DANIO_MISIL;
+        if (target->escudo < 0) {
+            target->escudo = 0;
+        }
+        *out_escudo_restante = target->escudo;
+        *out_pid = target->pid;
+        impacto = true;
+
+        if (target->escudo == 0) {
+            target->incapacitada = true;
+        }
+    }
+    
+    pthread_mutex_unlock(&target->mutex);
+    return impacto;
+}
+
+static void animar_misil_en_celda(int x, int y, char celda)
+{
+    if (celda == CHAR_VACIO) {
+        g.mapa->celdas[y][x] = '*';
+        dormir_ms(50);
+        g.mapa->celdas[y][x] = CHAR_VACIO;
+    }
+}
+
+static void mostrar_notificacion_disparo(bool impacto, int pid_impactado, int escudo_restante)
+{
     if (impacto) {
         if (escudo_restante == 0) {
             snprintf(g.hud_error, sizeof(g.hud_error), "¡Nave %d DESTRUIDA!", pid_impactado);
@@ -596,6 +574,46 @@ static void disparar_misil(void)
         strncpy(g.hud_error, "Misil fallido", sizeof(g.hud_error));
     }
     g.hud_error_recibido = time(NULL);
+}
+
+static void disparar_misil(void)
+{
+    if (!puede_disparar()) return;
+
+    // Descontar combustible
+    barra_modificar(&g.nave.barra_combustible, -COSTO_FUEL_MISIL);
+
+    int tx = g.x;
+    int ty = g.y;
+    bool impacto = false;
+    bool detenido = false;
+    int pid_impactado = 0;
+    int escudo_restante = 0;
+
+    for (int i = 1; i <= RANGO_MISIL && !detenido; i++) {
+        tx += g.dir_x;
+        ty += g.dir_y;
+
+        // Chequear límites del mapa
+        if (tx < 0 || tx >= MAP_COLS || ty < 0 || ty >= MAP_ROWS) {
+            detenido = true;
+        } else {
+            char celda = g.mapa->celdas[ty][tx];
+
+            // Si choca con asteroide o estación, se detiene
+            if (celda == CHAR_ASTEROIDE || celda == CHAR_ESTACION) {
+                detenido = true;
+            } else if (celda == CHAR_NAVE) {
+                int target_slot = buscar_slot_nave_en_posicion(tx, ty);
+                impacto = aplicar_danio_a_nave(target_slot, &pid_impactado, &escudo_restante);
+                detenido = true;
+            } else {
+                animar_misil_en_celda(tx, ty, celda);
+            }
+        }
+    }
+
+    mostrar_notificacion_disparo(impacto, pid_impactado, escudo_restante);
 }
 
 /* ─── Hilos ────────────────────────────────────────────────────── */
