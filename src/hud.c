@@ -51,9 +51,9 @@ void init_ncurses(void)
         init_pair(9, COLOR_CYAN,   -1);
     }
 
-    win_hud   = newwin(MAP_ROWS + 8, PANEL_W, 0, 0);
+    win_hud   = newwin(MAP_ROWS + 4, PANEL_W, 0, 0);
     win_mapa  = newwin(MAP_ROWS + 2, MAP_COLS + 2, 0, PANEL_W);
-    win_score = newwin(MAP_ROWS + 8, PANEL_W, 0, PANEL_W + MAP_COLS + 2);
+    win_score = newwin(MAP_ROWS + 4, PANEL_W, 0, PANEL_W + MAP_COLS + 2);
 
     nodelay(stdscr, TRUE); /* getch() no bloquea */
     keypad(stdscr, TRUE);
@@ -120,32 +120,32 @@ static void render_frame(void)
     hud_barra(3, fuel, FUEL_MAX, 2, 3);
 
     /* Oxígeno */
-    mvwprintw(win_hud, 5, 1, "Oxigeno");
-    hud_barra(6, o2, O2_MAX, 9, 3);
+    mvwprintw(win_hud, 4, 1, "Oxigeno");
+    hud_barra(5, o2, O2_MAX, 9, 3);
 
     /* Escudo */
-    mvwprintw(win_hud, 8, 1, "Escudo");
-    hud_barra(9, escudo, ESCUDO_MAX, 2, 3);
+    mvwprintw(win_hud, 6, 1, "Escudo");
+    hud_barra(7, escudo, ESCUDO_MAX, 2, 3);
 
     /* Posición */
-    mvwprintw(win_hud, 11, 1, "Posicion: X:%-2d Y:%-2d", g.x, g.y);
-    mvwprintw(win_hud, 12, 1, "PID Nave: %-5d", getpid());
-    mvwprintw(win_hud, 13, 1, "Creditos: %-6d", g.nave.creditos);
+    mvwprintw(win_hud, 9,  1, "Posicion: X:%-2d Y:%-2d", g.x, g.y);
+    mvwprintw(win_hud, 10, 1, "PID Nave: %-5d", getpid());
+    mvwprintw(win_hud, 11, 1, "Creditos: %-6d", g.nave.creditos);
 
     /* Inventario (Compactado en dos columnas para ahorrar espacio) */
-    mvwprintw(win_hud, 15, 1, "Inventario");
-    mvwprintw(win_hud, 16, 1, " Deu:%-3d Mut:%-3d", g.nave.inventario[MINERAL_DEUTERIO], g.nave.inventario[MINERAL_MUTEXIO]);
-    mvwprintw(win_hud, 17, 1, " Sem:%-3d Ker:%-3d", g.nave.inventario[MINERAL_SEMAFORITA], g.nave.inventario[MINERAL_KERNELIO]);
+    mvwprintw(win_hud, 13, 1, "Inventario");
+    mvwprintw(win_hud, 14, 1, " Deu:%-3d Mut:%-3d", g.nave.inventario[MINERAL_DEUTERIO], g.nave.inventario[MINERAL_MUTEXIO]);
+    mvwprintw(win_hud, 15, 1, " Sem:%-3d Ker:%-3d", g.nave.inventario[MINERAL_SEMAFORITA], g.nave.inventario[MINERAL_KERNELIO]);
 
     /* Extracción */
-    mvwprintw(win_hud, 19, 1, "Extraccion");
+    mvwprintw(win_hud, 17, 1, "Extraccion");
     int prog = g.prog_ext;
     if (prog < 0) prog = 0;
-    hud_barra(20, prog, 100, 7, 7); // Color 7 (cyan) para carga
+    hud_barra(18, prog, 100, 7, 7); // Color 7 (cyan) para carga
 
     /* Controles dinámicos */
-    mvwprintw(win_hud, 22, 1, "Controles:");
-    mvwprintw(win_hud, 23, 1, " WASD  mover");
+    mvwprintw(win_hud, 20, 1, "Controles:");
+    mvwprintw(win_hud, 21, 1, " WASD  mover");
 
     // Iluminar 'E extraer/lootear' si hay un asteroide o nave incapacitada adyacente
     bool objetivo_cerca = false;
@@ -177,18 +177,18 @@ static void render_frame(void)
 
     if (objetivo_cerca) {
         wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
-        mvwprintw(win_hud, 24, 1, " E     ext/loot ");
+        mvwprintw(win_hud, 22, 1, " E     ext/loot ");
         wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
     } else {
-        mvwprintw(win_hud, 24, 1, " E     ext/loot ");
+        mvwprintw(win_hud, 22, 1, " E     ext/loot ");
     }
 
-    mvwprintw(win_hud, 25, 1, " F     disparar");
+    mvwprintw(win_hud, 23, 1, " F     disparar");
 
     if (g.en_hangar) {
-        mvwprintw(win_hud, 26, 1, " V     vender");
-        mvwprintw(win_hud, 27, 1, " C/O   fuel/O2");
-        mvwprintw(win_hud, 28, 1, " H     salir hangar");
+        mvwprintw(win_hud, 24, 1, " V     vender");
+        mvwprintw(win_hud, 24, 12, " C/O  fuel/O2");
+        mvwprintw(win_hud, 24, 25, " H    salir hangar");
     } else {
         bool estacion_cerca = false;
         int dx_dirs[] = {0, 0, -1, 1};
@@ -205,26 +205,24 @@ static void render_frame(void)
         }
         if (estacion_cerca) {
             wattron(win_hud, COLOR_PAIR(7) | A_BOLD);
-            mvwprintw(win_hud, 26, 1, " H     entrar hangar");
+            mvwprintw(win_hud, 24, 1, " H     entrar hangar");
             wattroff(win_hud, COLOR_PAIR(7) | A_BOLD);
         } else {
-            mvwprintw(win_hud, 26, 1, "                   "); // limpiar si ya no está cerca
+            mvwprintw(win_hud, 24, 1, " Q     salir        ");
         }
-        mvwprintw(win_hud, 27, 1, " Q     salir");
-        mvwprintw(win_hud, 28, 1, "                   "); // limpiar línea extra
     }
 
     wattroff(win_hud, COLOR_PAIR(1));
 
-    /* Mensajes de error/notificación (últimos 3 segundos) - Fila 30 */
+    /* Mensajes de error/notificación (últimos 3 segundos) - Fila 25 */
     if (ahora - g.hud_error_recibido < 3) {
         wattron(win_hud, COLOR_PAIR(3));
-        mvwprintw(win_hud, 30, 1, "%s", g.hud_error);
+        mvwprintw(win_hud, 25, 1, "%s", g.hud_error);
         wattroff(win_hud, COLOR_PAIR(3));
     }
 
-    /* Alertas de estaciones - Fila 31 y 32 */
-    int alert_row = 31;
+    /* Alertas de estaciones - Fila 26 y 27 */
+    int alert_row = 26;
     for (int i = 0; i < 3; i++) {
         if (g.alertas[i].activa && (ahora - g.alertas[i].timestamp < 8)) {
             if (g.alertas[i].explotada) {
@@ -236,14 +234,14 @@ static void render_frame(void)
                 mvwprintw(win_hud, alert_row++, 1, "Est(%d,%d) pide H2", g.alertas[i].x, g.alertas[i].y);
                 wattroff(win_hud, COLOR_PAIR(3) | A_BOLD);
             }
-            if (alert_row > 32) break;
+            if (alert_row > 27) break;
         }
     }
 
     /* GAME OVER */
     if (!g.vivo) {
         wattron(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
-        mvwprintw(win_hud, 29, 1, "*** GAME OVER ***");
+        mvwprintw(win_hud, 24, 1, "*** GAME OVER ***");
         wattroff(win_hud, COLOR_PAIR(8) | A_BOLD | A_BLINK);
     }
 

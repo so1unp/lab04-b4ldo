@@ -483,6 +483,13 @@ static void sincronizar_escudo_desde_shm(void)
     int shm_escudo = g.mapa->naves[g.nave_slot_shm].escudo;
     pthread_mutex_unlock(&g.mapa->naves[g.nave_slot_shm].mutex);
 
+    int actual_escudo = barra_get_valor(&g.nave.barra_escudo);
+    if (shm_escudo < actual_escudo) {
+        int danio = actual_escudo - shm_escudo;
+        snprintf(g.hud_error, sizeof(g.hud_error), "¡Te atacaron! -%d Escudo", danio);
+        g.hud_error_recibido = time(NULL);
+    }
+
     barra_set_valor(&g.nave.barra_escudo, shm_escudo);
     if (shm_escudo <= 0) {
         game_over("escudo");
